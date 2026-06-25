@@ -11,6 +11,8 @@
 - [Skills 标准设计](./docs/01-skill-standard.md)
 - [Agent Loop 与运行时设计](./docs/02-agent-loop-and-runtime.md)
 - [交付路线与验收清单](./docs/03-delivery-roadmap.md)
+- [Agent Learning Hub 启发总结](./docs/04-agent-learning-hub-insights.md)
+- [Agent Harness 基础知识与实现思路](./docs/05-agent-harness-basics.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
 
 ## 目标
