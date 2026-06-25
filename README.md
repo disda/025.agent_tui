@@ -14,6 +14,8 @@
 - [Agent Learning Hub 启发总结](./docs/04-agent-learning-hub-insights.md)
 - [Agent Harness 基础知识与实现思路](./docs/05-agent-harness-basics.md)
 - [构建验证记录](./docs/06-build-verification.md)
+- [Deliverables 验证产物](./deliverables/README.md)
+- [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
 
 ## Build
@@ -23,6 +25,19 @@ cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+## 验证目标
+
+最终验证目标是：**加载 kwoa-cli Skill，实现 IM / KDocs 文档读取与安全写操作拦截能力**。
+
+重点验证：
+
+- 加载 `kwoa_cli` Skill。
+- 理解 kwoa-cli 的 IM / KDocs 使用规则。
+- 执行只读 IM 查询和文档读取。
+- 对消息发送、撤回、转发、reaction、KDocs 写入等高风险操作进行权限确认。
+- 将工具结果回传模型继续推理。
+- 在 `deliverables/` 中沉淀可运行验证产物和关键截图。
 
 ## 目标
 
@@ -86,3 +101,4 @@ Permission Gate 拦截危险操作
 - `shell_runner`
 - `cpp_project`
 - `tui_agent`
+- `kwoa_cli`
