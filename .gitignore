@@ -6,3 +6,14 @@ __pycache__/
 *.pyc
 .env
 .agent-tui.local.yaml
+
+build/
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.dll
+*.dylib
+*.so
+.DS_Store
+.agent-tui/sessions/
