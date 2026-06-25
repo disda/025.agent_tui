@@ -17,6 +17,7 @@
 - [x] 已在本地隔离 `build/` 目录中验证 `cmake` / `build` / `ctest` 通过。
 - [x] 创建 `deliverables/` 可运行验证产物目录。
 - [x] 明确最终验收 Demo：加载 kwoa-cli Skill，实现 IM / KDocs 文档操作能力验证。
+- [x] 明确需要受控代码/脚本执行能力，但第一版只做受控 Shell，不做完整解释器或沙箱。
 
 ## 当前已验证命令
 
@@ -79,42 +80,93 @@ deliverables/screenshots/.gitkeep
 
 ## 下一步优先级
 
-### 1. File Tools
+### 1. File Tools + WorkspaceGuard
 
-实现真实只读文件工具：
+先实现真实只读文件工具，因为这是后续 run_shell、SkillRuntime、kwoa-cli 验证的基础。
 
+- [ ] `Workspace` 封装 workspace root。
+- [ ] canonical path 校验。
+- [ ] path traversal 防护。
 - [ ] `list_dir`
 - [ ] `read_file`
 - [ ] `glob_files`
 - [ ] `search_text`
-- [ ] workspace root 限制
-- [ ] path traversal 防护
-- [ ] 工具结果长度限制
+- [ ] 工具结果长度限制。
+- [ ] `test_file_tools.cpp`。
+
+验收：AgentRunner 可以通过 MockProvider 调用 `read_file` 读取 workspace 内文件，并把结果回传给模型。
 
 ### 2. PermissionGate
 
-实现危险操作确认：
+实现危险操作确认。`run_shell` 在它之前不应进入真实执行。
 
 - [ ] `ApprovalType::Approve`
 - [ ] `ApprovalType::Deny`
 - [ ] `ApprovalType::Edit`
 - [ ] `ApprovalType::Feedback`
-- [ ] 写文件必须确认
-- [ ] Shell 命令必须确认
-- [ ] 拒绝结果作为 tool_result 回传模型
+- [ ] `ApprovalService` 抽象。
+- [ ] `MockApprovalService` 测试实现。
+- [ ] 写文件必须确认。
+- [ ] Shell 命令必须确认。
+- [ ] 拒绝结果作为 tool_result 回传模型。
+- [ ] `test_permission_denied_goes_back_to_model`。
 
-### 3. Write / Edit / Shell Tools
+### 3. 受控 Shell 执行能力
 
-实现需要确认的工具：
+需要代码/脚本执行能力，但第一版只做受控 Shell，不做完整解释器、Docker 沙箱或浏览器自动化。
+
+工具：
+
+```text
+run_shell
+```
+
+参数：
+
+```text
+command
+cwd
+timeout_seconds
+```
+
+返回：
+
+```text
+exit_code
+stdout
+stderr
+timeout
+```
+
+必须实现：
+
+- [ ] `run_shell` 走 PermissionGate。
+- [ ] cwd 必须在 workspace 内。
+- [ ] timeout 超时终止。
+- [ ] 捕获 stdout。
+- [ ] 捕获 stderr。
+- [ ] 捕获 exit_code。
+- [ ] 输出长度限制。
+- [ ] 用户拒绝时不执行。
+- [ ] 用户拒绝结果回传模型。
+- [ ] `test_run_shell_echo`。
+- [ ] `test_run_shell_nonzero_exit`。
+- [ ] `test_run_shell_timeout`。
+- [ ] `test_run_shell_denied_not_executed`。
+
+### 4. Write / Edit Tools
+
+在 PermissionGate 和 WorkspaceGuard 稳定后实现：
 
 - [ ] `write_file`
 - [ ] `edit_file`
-- [ ] `run_shell`
-- [ ] stdout / stderr / exit code 捕获
-- [ ] timeout
-- [ ] cwd 限制
+- [ ] 写入路径限制在 workspace 内。
+- [ ] 写入前展示 path 和内容摘要。
+- [ ] 用户拒绝时不落盘。
+- [ ] `test_write_file_requires_confirm`。
+- [ ] `test_edit_file_requires_confirm`。
 
-### 4. kwoa-cli Skill Runtime 验证
+### 5. kwoa-cli Skill Runtime 验证
 
 实现加载 kwoa-cli Skill 并验证 IM / 文档操作：
 
@@ -128,7 +180,7 @@ deliverables/screenshots/.gitkeep
 - [ ] IM / KDocs 写操作必须走 PermissionGate。
 - [ ] 增加 `test_kwoa_cli_send_message_requires_confirm`。
 
-### 5. SessionHistory / AuditLog
+### 6. SessionHistory / AuditLog
 
 实现运行时会话和审计日志：
 
@@ -139,9 +191,9 @@ deliverables/screenshots/.gitkeep
 - [ ] 运行时 session 写入 `.agent-tui/sessions/`
 - [ ] AI 协作记录继续写入 `.ai_history/logs/`
 
-### 6. SkillRuntime
+### 7. SkillRuntime
 
-实现 Skills 加载和选择：
+实现通用 Skills 加载和选择：
 
 - [ ] 加载 `skills/*/skill.yaml`
 - [ ] 加载 `skills/*/SKILL.md`
@@ -149,7 +201,7 @@ deliverables/screenshots/.gitkeep
 - [ ] 按 Skill 限制可用工具集合
 - [ ] 新增 `kwoa_cli` Skill smoke test
 
-### 7. TUI
+### 8. TUI
 
 第一版 TUI 不做复杂布局，先保证可用：
 
@@ -173,11 +225,18 @@ feat: add file tools and workspace guard
 
 建议包含：
 
-- `include/agent_tui/tools/FileTools.hpp`
 - `include/agent_tui/workspace/Workspace.hpp`
+- `include/agent_tui/tools/FileTools.hpp`
 - `tests/test_file_tools.cpp`
 
 目标：让 AgentRunner 不再只执行 fake echo tool，而是能真实读取当前 workspace 下的文件。
+
+紧接着再做：
+
+```text
+feat: add permission gate
+feat: add controlled shell tool
+```
 
 ## 当前不要做
 
@@ -189,8 +248,10 @@ feat: add file tools and workspace guard
 - 插件市场
 - 自动 Git 提交
 - Browser / Computer Use Agent
+- 内置 Python / JS 解释器
+- Docker / 云沙箱
 - 复杂长期记忆
 - 复杂上下文压缩
 - 完整真实 Provider
 
-先把 C++ 工程骨架、MockProvider、AgentRunner、ToolSystem、PermissionGate、SkillRuntime 跑通。
+先把 C++ 工程骨架、MockProvider、AgentRunner、ToolSystem、PermissionGate、受控 Shell、SkillRuntime 跑通。
