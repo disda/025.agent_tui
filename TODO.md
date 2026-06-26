@@ -6,7 +6,7 @@
 
 - [x] 明确项目从 Python/Textual 方案调整为纯 C++ 方案。
 - [x] 明确采用 kwoa-cli 风格 Skills Runtime。
-- [x] 完成设计文档：`docs/00` 到 `docs/10`。
+- [x] 完成设计文档：`docs/00` 到 `docs/12`。
 - [x] 按项目要求补充 `.ai_history/logs/` AI 协作记录。
 - [x] 新增 C++ 工程骨架。
 - [x] 新增 Minimal AgentRunner。
@@ -15,9 +15,11 @@
 - [x] 新增 Done 虚拟工具处理。
 - [x] 新增 FileTools + WorkspaceGuard。
 - [x] 新增 PermissionGate。
+- [x] 新增 Controlled Shell Tool。
 - [x] 新增 `tests/test_agent_runner.cpp`。
 - [x] 新增 `tests/test_file_tools.cpp`。
 - [x] 新增 `tests/test_permission_gate.cpp`。
+- [x] 新增 `tests/test_shell_tool.cpp`。
 - [x] 已在本地隔离 `build/` 目录中验证 `cmake` / `build` / `ctest` 通过。
 - [x] 创建 `deliverables/` 可运行验证产物目录。
 - [x] 明确最终验收 Demo：加载 kwoa-cli Skill，实现 IM / KDocs 文档操作能力验证。
@@ -37,6 +39,7 @@ ctest --test-dir build --output-on-failure
 docs/06-build-verification.md
 docs/08-file-tools-workspace-guard.md
 docs/10-permission-gate-verification.md
+docs/12-controlled-shell-tool-verification.md
 ```
 
 ## 交付清单状态
@@ -69,52 +72,9 @@ deliverables/screenshots/.gitkeep
 
 ## 下一步优先级
 
-### 1. 受控 Shell 执行能力
+### 1. Write / Edit Tools
 
-需要代码/脚本执行能力，但第一版只做受控 Shell，不做完整解释器、Docker 沙箱或浏览器自动化。
-
-工具：
-
-```text
-run_shell
-```
-
-参数：
-
-```text
-command
-cwd
-timeout_seconds
-```
-
-返回：
-
-```text
-exit_code
-stdout
-stderr
-timeout
-```
-
-必须实现：
-
-- [ ] `run_shell` 走 PermissionGate。
-- [ ] cwd 必须在 workspace 内。
-- [ ] timeout 超时终止。
-- [ ] 捕获 stdout。
-- [ ] 捕获 stderr。
-- [ ] 捕获 exit_code。
-- [ ] 输出长度限制。
-- [ ] 用户拒绝时不执行。
-- [ ] 用户拒绝结果回传模型。
-- [ ] `test_run_shell_echo`。
-- [ ] `test_run_shell_nonzero_exit`。
-- [ ] `test_run_shell_timeout`。
-- [ ] `test_run_shell_denied_not_executed`。
-
-### 2. Write / Edit Tools
-
-在 PermissionGate 和 WorkspaceGuard 稳定后实现：
+在 PermissionGate、WorkspaceGuard 和 ShellTool 稳定后实现写入与编辑能力：
 
 - [ ] `write_file`
 - [ ] `edit_file`
@@ -124,7 +84,7 @@ timeout
 - [ ] `test_write_file_requires_confirm`。
 - [ ] `test_edit_file_requires_confirm`。
 
-### 3. kwoa-cli Skill Runtime 验证
+### 2. kwoa-cli Skill Runtime 验证
 
 实现加载 kwoa-cli Skill 并验证 IM / 文档操作：
 
@@ -138,7 +98,7 @@ timeout
 - [ ] IM / KDocs 写操作必须走 PermissionGate。
 - [ ] 增加 `test_kwoa_cli_send_message_requires_confirm`。
 
-### 4. SessionHistory / AuditLog
+### 3. SessionHistory / AuditLog
 
 实现运行时会话和审计日志：
 
@@ -149,7 +109,7 @@ timeout
 - [ ] 运行时 session 写入 `.agent-tui/sessions/`
 - [ ] AI 协作记录继续写入 `.ai_history/logs/`
 
-### 5. SkillRuntime
+### 4. SkillRuntime
 
 实现通用 Skills 加载和选择：
 
@@ -159,7 +119,7 @@ timeout
 - [ ] 按 Skill 限制可用工具集合
 - [ ] 新增 `kwoa_cli` Skill smoke test
 
-### 6. TUI
+### 5. TUI
 
 第一版 TUI 不做复杂布局，先保证可用：
 
@@ -178,40 +138,40 @@ timeout
 ## 刚完成的提交
 
 ```text
-feat: add permission gate
+feat: add controlled shell tool
 ```
 
 已包含：
 
-- `include/agent_tui/permissions/Approval.hpp`
-- `include/agent_tui/permissions/ApprovalService.hpp`
-- `include/agent_tui/permissions/MockApprovalService.hpp`
-- `tests/test_permission_gate.cpp`
+- `include/agent_tui/tools/ShellTool.hpp`
+- `tests/test_shell_tool.cpp`
 
 已实现：
 
-- `ApprovalType::Approve`
-- `ApprovalType::Deny`
-- `ApprovalType::Edit`
-- `ApprovalType::Feedback`
-- Confirm 工具执行前请求 ApprovalService。
-- Deny 后不执行工具。
-- Feedback 后不执行工具。
-- Edit 后使用用户编辑参数执行。
-- 权限拒绝和用户反馈作为 tool_result 回传模型。
+- `run_shell` 工具。
+- `PermissionMode::Confirm`。
+- cwd workspace 限制。
+- stdout 捕获。
+- stderr 捕获。
+- exit_code 捕获。
+- timeout。
+- max_output_bytes 输出限制。
+- 用户拒绝时不执行。
+- cwd 逃逸拒绝。
 
 ## 下一次最建议做的提交
 
 ```text
-feat: add controlled shell tool
+feat: add write and edit file tools
 ```
 
 建议包含：
 
-- `include/agent_tui/tools/ShellTool.hpp`
-- `tests/test_shell_tool.cpp`
+- `docs/13-write-edit-tools-design.md`
+- `include/agent_tui/tools/WriteEditTools.hpp`
+- `tests/test_write_edit_tools.cpp`
 
-目标：让 Agent 能执行受控 shell 命令，并通过 PermissionGate 防止未经确认的危险操作。
+目标：让 Agent 具备真实修改项目文件的能力，并通过 PermissionGate 确保写入和编辑都必须确认。
 
 ## 当前不要做
 
@@ -229,4 +189,4 @@ feat: add controlled shell tool
 - 复杂上下文压缩
 - 完整真实 Provider
 
-先把 C++ 工程骨架、MockProvider、AgentRunner、ToolSystem、PermissionGate、受控 Shell、SkillRuntime 跑通。
+先把 C++ 工程骨架、MockProvider、AgentRunner、ToolSystem、PermissionGate、受控 Shell、写入编辑工具、SkillRuntime 跑通。
