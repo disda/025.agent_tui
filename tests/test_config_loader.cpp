@@ -1,0 +1,99 @@
+#include "agent_tui/config/ConfigLoader.hpp"
+#include "agent_tui/llm/ProviderFactory.hpp"
+
+#include <cassert>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+using namespace agent_tui;
+
+namespace {
+
+std::filesystem::path make_test_root() {
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    auto root = std::filesystem::temp_directory_path() / ("agent_tui_config_" + std::to_string(stamp));
+    std::filesystem::create_directories(root);
+    return root;
+}
+
+void write_file(const std::filesystem::path& path, const std::string& content) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << content;
+}
+
+void test_project_config_overrides_user_config() {
+    const auto root = make_test_root();
+    const auto user_config = root / "user" / "config.toml";
+    const auto project_config = root / "project" / ".agent_tui" / "config.toml";
+
+    write_file(user_config,
+               "provider = \"mock\"\n"
+               "model = \"user-model\"\n"
+               "api_base = \"https://user.example/v1\"\n"
+               "timeout_seconds = 10\n"
+               "max_loops = 2\n");
+
+    write_file(project_config,
+               "model = \"project-model\"\n"
+               "timeout_seconds = 30\n");
+
+    auto config = ConfigLoader::load_from_paths(user_config, project_config);
+    assert(config.provider == "mock");
+    assert(config.model == "project-model");
+    assert(config.api_base == "https://user.example/v1");
+    assert(config.timeout_seconds == 30);
+    assert(config.max_loops == 2);
+
+    std::filesystem::remove_all(root);
+}
+
+void test_api_key_is_not_exposed() {
+    Config config;
+    config.api_key_env = "SECRET_TOKEN_ENV";
+    const auto summary = config.summary();
+    assert(summary.find("SECRET_TOKEN_ENV") != std::string::npos);
+    assert(summary.find("sk-test-secret-value") == std::string::npos);
+}
+
+void test_write_example_config() {
+    const auto root = make_test_root();
+    const auto path = root / ".agent_tui" / "config.toml";
+    assert(ConfigLoader::write_example(path, false));
+    assert(std::filesystem::exists(path));
+    auto config = ConfigLoader::load_from_paths(path, root / "missing.toml");
+    assert(config.provider == "mock");
+    assert(config.model == "mock-model");
+    std::filesystem::remove_all(root);
+}
+
+void test_provider_factory_mock_chat() {
+    Config config;
+    config.provider = "mock";
+    auto provider = ProviderFactory::create(config);
+    auto response = provider->chat({Message{Role::User, "hi", {}}});
+    assert(response.type == ProviderResponseType::Text);
+    assert(response.text == "mock assistant: hi");
+}
+
+void test_provider_factory_placeholder_for_unknown_provider() {
+    Config config;
+    config.provider = "openai-compatible";
+    auto provider = ProviderFactory::create(config);
+    auto response = provider->chat({Message{Role::User, "hi", {}}});
+    assert(response.type == ProviderResponseType::Error);
+    assert(response.error.find("not implemented") != std::string::npos);
+}
+
+}  // namespace
+
+int main() {
+    test_project_config_overrides_user_config();
+    test_api_key_is_not_exposed();
+    test_write_example_config();
+    test_provider_factory_mock_chat();
+    test_provider_factory_placeholder_for_unknown_provider();
+    return 0;
+}
