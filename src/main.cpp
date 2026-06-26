@@ -1,6 +1,6 @@
-#include <iostream>
+#include "agent_tui/tui/TuiApp.hpp"
 
 int main() {
-    std::cout << "agent_tui minimal runner skeleton" << std::endl;
-    return 0;
+    agent_tui::TuiApp app;
+    return app.run();
 }
