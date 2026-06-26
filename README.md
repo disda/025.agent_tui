@@ -30,6 +30,8 @@
 - [Config + Provider + Terminal Chat 验证说明](./docs/20-config-provider-terminal-chat-verification.md)
 - [OpenAI-compatible Provider 技术设计](./docs/21-openai-compatible-provider-design.md)
 - [OpenAI-compatible Provider 验证说明](./docs/22-openai-compatible-provider-verification.md)
+- [Local Intent Router 技术设计](./docs/23-local-intent-router-design.md)
+- [Local Intent Router 验证说明](./docs/24-local-intent-router-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
@@ -120,6 +122,35 @@ assistant: mock assistant: hello
 
 `openai-compatible` provider 会调用 `api_base + /chat/completions`。
 
+## Local Intents
+
+在完整 OpenAI tool_calls 和 AgentLoop 接上前，TUI 先内置常用本地意图识别。以下输入会直接调用本地工具：
+
+```text
+ls
+list docs
+read README.md
+search AgentRunner
+configure
+build
+test
+```
+
+中文也支持一部分常用表达：
+
+```text
+读取 README.md
+搜索 AgentRunner
+编译
+运行测试
+```
+
+`configure` / `build` / `test` 会先询问确认：
+
+```text
+Approve run_shell: cmake --build build ? [y/N]
+```
+
 ## 验证目标
 
 最终验证目标是：**加载 kwoa-cli Skill，实现 IM / KDocs 文档读取与安全写操作拦截能力**。
@@ -196,7 +227,3 @@ Permission Gate 拦截危险操作
 - `cpp_project`
 - `tui_agent`
 - `kwoa_cli`
-
-## Project State
-
-The TUI creates `./.agent_tui/sessions/` on startup. Inside the TUI, run `/config init project` to create `./.agent_tui/config.toml`.
