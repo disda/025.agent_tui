@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <utility>
 
 #include "agent_tui/session/SessionHistory.hpp"
 
