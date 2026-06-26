@@ -26,6 +26,8 @@
 - [SessionHistory / AuditLog 验证说明](./docs/16-session-history-audit-log-verification.md)
 - [Minimal TUI + Interrupt + API Config 技术设计](./docs/17-minimal-tui-config-interrupt-design.md)
 - [Minimal TUI + Interrupt + API Config 验证说明](./docs/18-minimal-tui-config-interrupt-verification.md)
+- [Config + Provider + Terminal Chat 技术设计](./docs/19-config-provider-terminal-chat-design.md)
+- [Config + Provider + Terminal Chat 验证说明](./docs/20-config-provider-terminal-chat-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
@@ -50,18 +52,53 @@ Windows Debug 构建示例：
 .\build\Debug\agent_tui.exe
 ```
 
+用户级配置目录类似 `.codex`：
+
+```text
+~/.agent_tui/config.toml
+```
+
+项目级配置：
+
+```text
+./.agent_tui/config.toml
+```
+
+配置示例：
+
+```toml
+provider = "mock"
+model = "mock-model"
+api_base = ""
+api_key_env = "OPENAI_API_KEY"
+timeout_seconds = 60
+max_loops = 8
+```
+
 启动后输入：
 
 ```text
 /help
 /status
-/api provider openai
+/config paths
+/config init user
+/config reload
+/api provider mock
 /api base https://api.openai.com/v1
 /api key-env OPENAI_API_KEY
 /model gpt-4.1
+hello
 /interrupt
 /exit
 ```
+
+当前 `mock` provider 会返回：
+
+```text
+assistant: mock assistant: hello
+```
+
+真实 OpenAI-compatible / CodingPlan Provider 后续接入。
 
 ## 验证目标
 
