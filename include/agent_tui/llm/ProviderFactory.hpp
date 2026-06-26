@@ -6,6 +6,7 @@
 
 #include "agent_tui/config/Config.hpp"
 #include "agent_tui/llm/EchoProvider.hpp"
+#include "agent_tui/llm/OpenAICompatibleProvider.hpp"
 #include "agent_tui/llm/Provider.hpp"
 
 namespace agent_tui {
@@ -29,6 +30,9 @@ public:
     static std::unique_ptr<Provider> create(const Config& config) {
         if (config.provider == "mock" || config.provider == "echo") {
             return std::make_unique<EchoProvider>();
+        }
+        if (config.provider == "openai-compatible" || config.provider == "openai") {
+            return std::make_unique<OpenAICompatibleProvider>(config);
         }
         return std::make_unique<PlaceholderProvider>(config.provider);
     }
