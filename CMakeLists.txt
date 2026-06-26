@@ -27,9 +27,13 @@ target_link_libraries(agent_tui_shell_tool_tests PRIVATE agent_tui_core)
 add_executable(agent_tui_write_edit_tools_tests tests/test_write_edit_tools.cpp)
 target_link_libraries(agent_tui_write_edit_tools_tests PRIVATE agent_tui_core)
 
+add_executable(agent_tui_session_history_tests tests/test_session_history.cpp)
+target_link_libraries(agent_tui_session_history_tests PRIVATE agent_tui_core)
+
 enable_testing()
 add_test(NAME agent_tui_tests COMMAND agent_tui_tests)
 add_test(NAME agent_tui_file_tools_tests COMMAND agent_tui_file_tools_tests)
 add_test(NAME agent_tui_permission_gate_tests COMMAND agent_tui_permission_gate_tests)
 add_test(NAME agent_tui_shell_tool_tests COMMAND agent_tui_shell_tool_tests)
 add_test(NAME agent_tui_write_edit_tools_tests COMMAND agent_tui_write_edit_tools_tests)
+add_test(NAME agent_tui_session_history_tests COMMAND agent_tui_session_history_tests)
