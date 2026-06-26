@@ -6,7 +6,7 @@
 
 - [x] 明确项目从 Python/Textual 方案调整为纯 C++ 方案。
 - [x] 明确采用 kwoa-cli 风格 Skills Runtime。
-- [x] 完成设计文档：`docs/00` 到 `docs/08`。
+- [x] 完成设计文档：`docs/00` 到 `docs/10`。
 - [x] 按项目要求补充 `.ai_history/logs/` AI 协作记录。
 - [x] 新增 C++ 工程骨架。
 - [x] 新增 Minimal AgentRunner。
@@ -14,8 +14,10 @@
 - [x] 新增 Provider / MockProvider 抽象。
 - [x] 新增 Done 虚拟工具处理。
 - [x] 新增 FileTools + WorkspaceGuard。
+- [x] 新增 PermissionGate。
 - [x] 新增 `tests/test_agent_runner.cpp`。
 - [x] 新增 `tests/test_file_tools.cpp`。
+- [x] 新增 `tests/test_permission_gate.cpp`。
 - [x] 已在本地隔离 `build/` 目录中验证 `cmake` / `build` / `ctest` 通过。
 - [x] 创建 `deliverables/` 可运行验证产物目录。
 - [x] 明确最终验收 Demo：加载 kwoa-cli Skill，实现 IM / KDocs 文档操作能力验证。
@@ -34,6 +36,7 @@ ctest --test-dir build --output-on-failure
 ```text
 docs/06-build-verification.md
 docs/08-file-tools-workspace-guard.md
+docs/10-permission-gate-verification.md
 ```
 
 ## 交付清单状态
@@ -66,22 +69,7 @@ deliverables/screenshots/.gitkeep
 
 ## 下一步优先级
 
-### 1. PermissionGate
-
-下一步先实现危险操作确认。`run_shell` 在它之前不应进入真实执行。
-
-- [ ] `ApprovalType::Approve`
-- [ ] `ApprovalType::Deny`
-- [ ] `ApprovalType::Edit`
-- [ ] `ApprovalType::Feedback`
-- [ ] `ApprovalService` 抽象。
-- [ ] `MockApprovalService` 测试实现。
-- [ ] 写文件必须确认。
-- [ ] Shell 命令必须确认。
-- [ ] 拒绝结果作为 tool_result 回传模型。
-- [ ] `test_permission_denied_goes_back_to_model`。
-
-### 2. 受控 Shell 执行能力
+### 1. 受控 Shell 执行能力
 
 需要代码/脚本执行能力，但第一版只做受控 Shell，不做完整解释器、Docker 沙箱或浏览器自动化。
 
@@ -124,7 +112,7 @@ timeout
 - [ ] `test_run_shell_timeout`。
 - [ ] `test_run_shell_denied_not_executed`。
 
-### 3. Write / Edit Tools
+### 2. Write / Edit Tools
 
 在 PermissionGate 和 WorkspaceGuard 稳定后实现：
 
@@ -136,7 +124,7 @@ timeout
 - [ ] `test_write_file_requires_confirm`。
 - [ ] `test_edit_file_requires_confirm`。
 
-### 4. kwoa-cli Skill Runtime 验证
+### 3. kwoa-cli Skill Runtime 验证
 
 实现加载 kwoa-cli Skill 并验证 IM / 文档操作：
 
@@ -150,7 +138,7 @@ timeout
 - [ ] IM / KDocs 写操作必须走 PermissionGate。
 - [ ] 增加 `test_kwoa_cli_send_message_requires_confirm`。
 
-### 5. SessionHistory / AuditLog
+### 4. SessionHistory / AuditLog
 
 实现运行时会话和审计日志：
 
@@ -161,7 +149,7 @@ timeout
 - [ ] 运行时 session 写入 `.agent-tui/sessions/`
 - [ ] AI 协作记录继续写入 `.ai_history/logs/`
 
-### 6. SkillRuntime
+### 5. SkillRuntime
 
 实现通用 Skills 加载和选择：
 
@@ -171,7 +159,7 @@ timeout
 - [ ] 按 Skill 限制可用工具集合
 - [ ] 新增 `kwoa_cli` Skill smoke test
 
-### 7. TUI
+### 6. TUI
 
 第一版 TUI 不做复杂布局，先保证可用：
 
@@ -190,41 +178,40 @@ timeout
 ## 刚完成的提交
 
 ```text
-feat: add file tools and workspace guard
-```
-
-已包含：
-
-- `include/agent_tui/workspace/Workspace.hpp`
-- `include/agent_tui/tools/FileTools.hpp`
-- `tests/test_file_tools.cpp`
-
-已实现：
-
-- `Workspace` root 封装。
-- canonical path 校验。
-- path traversal 防护。
-- `list_dir`。
-- `read_file`。
-- `glob_files`。
-- `search_text`。
-- 工具结果长度限制。
-- `build/`、`.git`、`cmake-build-*` 搜索跳过。
-
-## 下一次最建议做的提交
-
-```text
 feat: add permission gate
 ```
 
-建议包含：
+已包含：
 
 - `include/agent_tui/permissions/Approval.hpp`
 - `include/agent_tui/permissions/ApprovalService.hpp`
 - `include/agent_tui/permissions/MockApprovalService.hpp`
 - `tests/test_permission_gate.cpp`
 
-目标：让 AgentRunner 在遇到 Confirm 工具时可以暂停、确认、拒绝、编辑参数或接收用户反馈。
+已实现：
+
+- `ApprovalType::Approve`
+- `ApprovalType::Deny`
+- `ApprovalType::Edit`
+- `ApprovalType::Feedback`
+- Confirm 工具执行前请求 ApprovalService。
+- Deny 后不执行工具。
+- Feedback 后不执行工具。
+- Edit 后使用用户编辑参数执行。
+- 权限拒绝和用户反馈作为 tool_result 回传模型。
+
+## 下一次最建议做的提交
+
+```text
+feat: add controlled shell tool
+```
+
+建议包含：
+
+- `include/agent_tui/tools/ShellTool.hpp`
+- `tests/test_shell_tool.cpp`
+
+目标：让 Agent 能执行受控 shell 命令，并通过 PermissionGate 防止未经确认的危险操作。
 
 ## 当前不要做
 
