@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -161,7 +162,7 @@ public:
         curl_config << "url = \"" << api_base << "/chat/completions\"\n";
         curl_config << "header = \"Content-Type: application/json\"\n";
         curl_config << "header = \"Authorization: Bearer " << api_key << "\"\n";
-        curl_config << "data-binary = @" << request_path.string() << "\n";
+        curl_config << "data-binary = \"@" << request_path.string() << "\"\n";
         curl_config << "output = \"" << response_path.string() << "\"\n";
         curl_config << "max-time = " << config_.timeout_seconds << "\n";
 
