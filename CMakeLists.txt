@@ -39,6 +39,9 @@ target_link_libraries(agent_tui_config_loader_tests PRIVATE agent_tui_core)
 add_executable(agent_tui_openai_compatible_provider_tests tests/test_openai_compatible_provider.cpp)
 target_link_libraries(agent_tui_openai_compatible_provider_tests PRIVATE agent_tui_core)
 
+add_executable(agent_tui_intent_classifier_tests tests/test_intent_classifier.cpp)
+target_link_libraries(agent_tui_intent_classifier_tests PRIVATE agent_tui_core)
+
 enable_testing()
 add_test(NAME agent_tui_tests COMMAND agent_tui_tests)
 add_test(NAME agent_tui_file_tools_tests COMMAND agent_tui_file_tools_tests)
@@ -49,3 +52,4 @@ add_test(NAME agent_tui_session_history_tests COMMAND agent_tui_session_history_
 add_test(NAME agent_tui_app_tests COMMAND agent_tui_app_tests)
 add_test(NAME agent_tui_config_loader_tests COMMAND agent_tui_config_loader_tests)
 add_test(NAME agent_tui_openai_compatible_provider_tests COMMAND agent_tui_openai_compatible_provider_tests)
+add_test(NAME agent_tui_intent_classifier_tests COMMAND agent_tui_intent_classifier_tests)
