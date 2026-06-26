@@ -22,6 +22,8 @@
 - [Controlled Shell Tool 验证记录](./docs/12-controlled-shell-tool-verification.md)
 - [Write / Edit Tools 技术设计](./docs/13-write-edit-tools-design.md)
 - [Write / Edit Tools 验证记录](./docs/14-write-edit-tools-verification.md)
+- [SessionHistory / AuditLog 技术设计](./docs/15-session-history-audit-log-design.md)
+- [SessionHistory / AuditLog 验证说明](./docs/16-session-history-audit-log-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
