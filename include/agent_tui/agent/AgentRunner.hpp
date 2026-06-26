@@ -5,6 +5,7 @@
 
 #include "agent_tui/agent/AgentResult.hpp"
 #include "agent_tui/llm/Provider.hpp"
+#include "agent_tui/permissions/ApprovalService.hpp"
 #include "agent_tui/tools/ToolRegistry.hpp"
 
 namespace agent_tui {
@@ -13,6 +14,9 @@ class AgentRunner {
 public:
     AgentRunner(Provider& provider, ToolRegistry& tools, int max_loops = 8)
         : provider_(provider), tools_(tools), max_loops_(max_loops) {}
+
+    AgentRunner(Provider& provider, ToolRegistry& tools, ApprovalService& approval_service, int max_loops = 8)
+        : provider_(provider), tools_(tools), approval_service_(&approval_service), max_loops_(max_loops) {}
 
     AgentResult run(std::vector<Message> messages) {
         for (int step = 0; step < max_loops_; ++step) {
@@ -44,7 +48,30 @@ public:
                     continue;
                 }
 
-                auto result = tool->run(call.arguments);
+                JsonLike arguments = call.arguments;
+                if (tool->permission_mode() == PermissionMode::Confirm) {
+                    if (approval_service_ == nullptr) {
+                        messages.push_back(Message{Role::Tool, "Permission required but no approval service configured.", call.id});
+                        continue;
+                    }
+
+                    auto decision = approval_service_->request(call, *tool);
+                    if (decision.type == ApprovalType::Deny) {
+                        auto message = decision.feedback.empty() ? std::string{"User denied permission."}
+                                                                : std::string{"User denied permission: "} + decision.feedback;
+                        messages.push_back(Message{Role::Tool, message, call.id});
+                        continue;
+                    }
+                    if (decision.type == ApprovalType::Feedback) {
+                        messages.push_back(Message{Role::Tool, "User feedback: " + decision.feedback, call.id});
+                        continue;
+                    }
+                    if (decision.type == ApprovalType::Edit) {
+                        arguments = decision.edited_arguments;
+                    }
+                }
+
+                auto result = tool->run(arguments);
                 messages.push_back(Message{
                     Role::Tool,
                     result.ok ? result.output : result.error,
@@ -62,6 +89,7 @@ public:
 private:
     Provider& provider_;
     ToolRegistry& tools_;
+    ApprovalService* approval_service_ = nullptr;
     int max_loops_ = 8;
     std::vector<Message> last_messages_;
 };
