@@ -1,11 +1,13 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "agent_tui/agent/AgentResult.hpp"
 #include "agent_tui/llm/Provider.hpp"
 #include "agent_tui/permissions/ApprovalService.hpp"
+#include "agent_tui/session/SessionHistory.hpp"
 #include "agent_tui/tools/ToolRegistry.hpp"
 
 namespace agent_tui {
@@ -15,43 +17,66 @@ public:
     AgentRunner(Provider& provider, ToolRegistry& tools, int max_loops = 8)
         : provider_(provider), tools_(tools), max_loops_(max_loops) {}
 
+    AgentRunner(Provider& provider, ToolRegistry& tools, SessionHistory& session_history, int max_loops = 8)
+        : provider_(provider), tools_(tools), session_history_(&session_history), max_loops_(max_loops) {}
+
     AgentRunner(Provider& provider, ToolRegistry& tools, ApprovalService& approval_service, int max_loops = 8)
         : provider_(provider), tools_(tools), approval_service_(&approval_service), max_loops_(max_loops) {}
 
+    AgentRunner(Provider& provider,
+                ToolRegistry& tools,
+                ApprovalService& approval_service,
+                SessionHistory& session_history,
+                int max_loops = 8)
+        : provider_(provider), tools_(tools), approval_service_(&approval_service), session_history_(&session_history), max_loops_(max_loops) {}
+
     AgentResult run(std::vector<Message> messages) {
+        log_initial_messages(messages);
+
         for (int step = 0; step < max_loops_; ++step) {
             auto response = provider_.chat(messages);
 
             if (response.type == ProviderResponseType::Text) {
                 messages.push_back(Message{Role::Assistant, response.text, {}});
+                log_assistant(response.text);
                 last_messages_ = messages;
                 return AgentResult::done(response.text);
             }
 
             if (response.type == ProviderResponseType::Error) {
+                log_error(response.error);
                 last_messages_ = messages;
                 return AgentResult::failed(response.error);
             }
 
             for (const auto& call : response.tool_calls) {
+                log_tool_call(call);
+
                 if (call.name == "Done") {
                     auto it = call.arguments.find("final_answer");
                     const auto answer = it == call.arguments.end() ? std::string{"Done"} : it->second;
                     messages.push_back(Message{Role::Assistant, answer, {}});
+                    log_assistant(answer);
                     last_messages_ = messages;
                     return AgentResult::done(answer);
                 }
 
                 auto* tool = tools_.find(call.name);
                 if (tool == nullptr) {
-                    messages.push_back(Message{Role::Tool, "Tool not found: " + call.name, call.id});
+                    auto message = "Tool not found: " + call.name;
+                    messages.push_back(Message{Role::Tool, message, call.id});
+                    log_error(message);
+                    log_tool_result(call.id, call.name, message);
                     continue;
                 }
 
                 JsonLike arguments = call.arguments;
                 if (tool->permission_mode() == PermissionMode::Confirm) {
                     if (approval_service_ == nullptr) {
-                        messages.push_back(Message{Role::Tool, "Permission required but no approval service configured.", call.id});
+                        auto message = std::string{"Permission required but no approval service configured."};
+                        messages.push_back(Message{Role::Tool, message, call.id});
+                        log_error(message);
+                        log_tool_result(call.id, call.name, message);
                         continue;
                     }
 
@@ -60,10 +85,15 @@ public:
                         auto message = decision.feedback.empty() ? std::string{"User denied permission."}
                                                                 : std::string{"User denied permission: "} + decision.feedback;
                         messages.push_back(Message{Role::Tool, message, call.id});
+                        log_permission_denied(call.id, call.name, message);
+                        log_tool_result(call.id, call.name, message);
                         continue;
                     }
                     if (decision.type == ApprovalType::Feedback) {
-                        messages.push_back(Message{Role::Tool, "User feedback: " + decision.feedback, call.id});
+                        auto message = "User feedback: " + decision.feedback;
+                        messages.push_back(Message{Role::Tool, message, call.id});
+                        log_user_feedback(call.id, call.name, decision.feedback);
+                        log_tool_result(call.id, call.name, message);
                         continue;
                     }
                     if (decision.type == ApprovalType::Edit) {
@@ -72,24 +102,79 @@ public:
                 }
 
                 auto result = tool->run(arguments);
+                auto output = result.ok ? result.output : result.error;
                 messages.push_back(Message{
                     Role::Tool,
-                    result.ok ? result.output : result.error,
+                    output,
                     call.id,
                 });
+                log_tool_result(call.id, call.name, output);
+                if (!result.ok) {
+                    log_error(output);
+                }
             }
         }
 
+        auto message = std::string{"Max loop count exceeded."};
+        log_error(message);
         last_messages_ = messages;
-        return AgentResult::failed("Max loop count exceeded.");
+        return AgentResult::failed(message);
     }
 
     const std::vector<Message>& last_messages() const { return last_messages_; }
 
 private:
+    void log_initial_messages(const std::vector<Message>& messages) {
+        if (session_history_ == nullptr) {
+            return;
+        }
+        for (const auto& message : messages) {
+            if (message.role == Role::User) {
+                session_history_->add(SessionEvent::user_input(message.content));
+            }
+        }
+    }
+
+    void log_assistant(const std::string& content) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::assistant_message(content));
+        }
+    }
+
+    void log_tool_call(const ToolCall& call) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::tool_call(call));
+        }
+    }
+
+    void log_tool_result(const std::string& call_id, const std::string& tool_name, const std::string& content) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::tool_result(call_id, tool_name, content));
+        }
+    }
+
+    void log_permission_denied(const std::string& call_id, const std::string& tool_name, const std::string& content) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::permission_denied(call_id, tool_name, content));
+        }
+    }
+
+    void log_user_feedback(const std::string& call_id, const std::string& tool_name, const std::string& content) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::user_feedback(call_id, tool_name, content));
+        }
+    }
+
+    void log_error(const std::string& content) {
+        if (session_history_ != nullptr) {
+            session_history_->add(SessionEvent::error(content));
+        }
+    }
+
     Provider& provider_;
     ToolRegistry& tools_;
     ApprovalService* approval_service_ = nullptr;
+    SessionHistory* session_history_ = nullptr;
     int max_loops_ = 8;
     std::vector<Message> last_messages_;
 };
