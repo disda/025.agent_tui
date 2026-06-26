@@ -6,14 +6,16 @@
 
 - [x] 明确项目从 Python/Textual 方案调整为纯 C++ 方案。
 - [x] 明确采用 kwoa-cli 风格 Skills Runtime。
-- [x] 完成设计文档：`docs/00` 到 `docs/06`。
+- [x] 完成设计文档：`docs/00` 到 `docs/08`。
 - [x] 按项目要求补充 `.ai_history/logs/` AI 协作记录。
 - [x] 新增 C++ 工程骨架。
 - [x] 新增 Minimal AgentRunner。
 - [x] 新增 Tool / ToolRegistry 抽象。
 - [x] 新增 Provider / MockProvider 抽象。
 - [x] 新增 Done 虚拟工具处理。
+- [x] 新增 FileTools + WorkspaceGuard。
 - [x] 新增 `tests/test_agent_runner.cpp`。
+- [x] 新增 `tests/test_file_tools.cpp`。
 - [x] 已在本地隔离 `build/` 目录中验证 `cmake` / `build` / `ctest` 通过。
 - [x] 创建 `deliverables/` 可运行验证产物目录。
 - [x] 明确最终验收 Demo：加载 kwoa-cli Skill，实现 IM / KDocs 文档操作能力验证。
@@ -31,6 +33,7 @@ ctest --test-dir build --output-on-failure
 
 ```text
 docs/06-build-verification.md
+docs/08-file-tools-workspace-guard.md
 ```
 
 ## 交付清单状态
@@ -61,44 +64,11 @@ deliverables/screenshots/.gitkeep
 把工具结果回传模型继续推理。
 ```
 
-## Agent-Learning-Hub 启发
-
-- [x] 确认主线不是老式 role-play 多 Agent，而是 Codex / Claude Code 风格 coding agent harness。
-- [x] 确认 Agent 能力主要来自 harness：工具协议、权限、状态、反馈、回放、CI、评测。
-- [x] 确认 Skills 是能力包，不是普通 Prompt。
-- [x] 确认 Evaluation 和 Safety 需要前置，不应等到后期补。
-- [x] 确认第一阶段不做 Browser / Computer Use Agent。
-- [x] 确认 kwoa-cli Skill 作为真实 smoke test。
-
-当前实现主线：
-
-```text
-用 Agent-Learning-Hub 的学习/工程节奏，
-实现 FastClaw / Nanobot 风格的小型 C++ Agent Harness，
-再用 kwoa-cli Skill 做真实验收。
-```
-
 ## 下一步优先级
 
-### 1. File Tools + WorkspaceGuard
+### 1. PermissionGate
 
-先实现真实只读文件工具，因为这是后续 run_shell、SkillRuntime、kwoa-cli 验证的基础。
-
-- [ ] `Workspace` 封装 workspace root。
-- [ ] canonical path 校验。
-- [ ] path traversal 防护。
-- [ ] `list_dir`
-- [ ] `read_file`
-- [ ] `glob_files`
-- [ ] `search_text`
-- [ ] 工具结果长度限制。
-- [ ] `test_file_tools.cpp`。
-
-验收：AgentRunner 可以通过 MockProvider 调用 `read_file` 读取 workspace 内文件，并把结果回传给模型。
-
-### 2. PermissionGate
-
-实现危险操作确认。`run_shell` 在它之前不应进入真实执行。
+下一步先实现危险操作确认。`run_shell` 在它之前不应进入真实执行。
 
 - [ ] `ApprovalType::Approve`
 - [ ] `ApprovalType::Deny`
@@ -111,7 +81,7 @@ deliverables/screenshots/.gitkeep
 - [ ] 拒绝结果作为 tool_result 回传模型。
 - [ ] `test_permission_denied_goes_back_to_model`。
 
-### 3. 受控 Shell 执行能力
+### 2. 受控 Shell 执行能力
 
 需要代码/脚本执行能力，但第一版只做受控 Shell，不做完整解释器、Docker 沙箱或浏览器自动化。
 
@@ -154,7 +124,7 @@ timeout
 - [ ] `test_run_shell_timeout`。
 - [ ] `test_run_shell_denied_not_executed`。
 
-### 4. Write / Edit Tools
+### 3. Write / Edit Tools
 
 在 PermissionGate 和 WorkspaceGuard 稳定后实现：
 
@@ -166,7 +136,7 @@ timeout
 - [ ] `test_write_file_requires_confirm`。
 - [ ] `test_edit_file_requires_confirm`。
 
-### 5. kwoa-cli Skill Runtime 验证
+### 4. kwoa-cli Skill Runtime 验证
 
 实现加载 kwoa-cli Skill 并验证 IM / 文档操作：
 
@@ -180,7 +150,7 @@ timeout
 - [ ] IM / KDocs 写操作必须走 PermissionGate。
 - [ ] 增加 `test_kwoa_cli_send_message_requires_confirm`。
 
-### 6. SessionHistory / AuditLog
+### 5. SessionHistory / AuditLog
 
 实现运行时会话和审计日志：
 
@@ -191,7 +161,7 @@ timeout
 - [ ] 运行时 session 写入 `.agent-tui/sessions/`
 - [ ] AI 协作记录继续写入 `.ai_history/logs/`
 
-### 7. SkillRuntime
+### 6. SkillRuntime
 
 实现通用 Skills 加载和选择：
 
@@ -201,7 +171,7 @@ timeout
 - [ ] 按 Skill 限制可用工具集合
 - [ ] 新增 `kwoa_cli` Skill smoke test
 
-### 8. TUI
+### 7. TUI
 
 第一版 TUI 不做复杂布局，先保证可用：
 
@@ -217,26 +187,44 @@ timeout
 - [ ] `/skills`
 - [ ] `/exit`
 
-## 下一次最建议做的提交
+## 刚完成的提交
 
 ```text
 feat: add file tools and workspace guard
 ```
 
-建议包含：
+已包含：
 
 - `include/agent_tui/workspace/Workspace.hpp`
 - `include/agent_tui/tools/FileTools.hpp`
 - `tests/test_file_tools.cpp`
 
-目标：让 AgentRunner 不再只执行 fake echo tool，而是能真实读取当前 workspace 下的文件。
+已实现：
 
-紧接着再做：
+- `Workspace` root 封装。
+- canonical path 校验。
+- path traversal 防护。
+- `list_dir`。
+- `read_file`。
+- `glob_files`。
+- `search_text`。
+- 工具结果长度限制。
+- `build/`、`.git`、`cmake-build-*` 搜索跳过。
+
+## 下一次最建议做的提交
 
 ```text
 feat: add permission gate
-feat: add controlled shell tool
 ```
+
+建议包含：
+
+- `include/agent_tui/permissions/Approval.hpp`
+- `include/agent_tui/permissions/ApprovalService.hpp`
+- `include/agent_tui/permissions/MockApprovalService.hpp`
+- `tests/test_permission_gate.cpp`
+
+目标：让 AgentRunner 在遇到 Confirm 工具时可以暂停、确认、拒绝、编辑参数或接收用户反馈。
 
 ## 当前不要做
 
