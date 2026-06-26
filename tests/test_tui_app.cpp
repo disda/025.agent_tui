@@ -27,6 +27,12 @@ void test_api_commands_set_runtime_config_without_key_value() {
     assert(app.config().max_loops == 9);
 }
 
+void test_config_command_paths_and_show() {
+    TuiApp app;
+    assert(app.handle_command("/config show"));
+    assert(app.handle_command("/config paths"));
+}
+
 void test_interrupt_command_sets_flag() {
     TuiApp app;
     assert(!app.interrupted());
@@ -53,8 +59,8 @@ void test_exit_command_stops_app() {
     assert(!app.running());
 }
 
-void test_run_accepts_scripted_input() {
-    std::istringstream input("/model scripted\n/api provider mock2\n/exit\n");
+void test_run_accepts_scripted_input_and_uses_mock_provider() {
+    std::istringstream input("hello provider\n/model scripted\n/api provider mock\n/exit\n");
     std::ostringstream output;
 
     TuiApp app;
@@ -63,16 +69,18 @@ void test_run_accepts_scripted_input() {
 
     assert(code == 0);
     assert(app.config().model == "scripted");
-    assert(app.config().provider == "mock2");
+    assert(app.config().provider == "mock");
     assert(output.str().find("agent_tui") != std::string::npos);
+    assert(output.str().find("mock assistant: hello provider") != std::string::npos);
 }
 
 int main() {
     test_model_command_sets_model();
     test_api_commands_set_runtime_config_without_key_value();
+    test_config_command_paths_and_show();
     test_interrupt_command_sets_flag();
     test_clear_command_resets_history_and_interrupt();
     test_exit_command_stops_app();
-    test_run_accepts_scripted_input();
+    test_run_accepts_scripted_input_and_uses_mock_provider();
     return 0;
 }
