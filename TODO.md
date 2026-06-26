@@ -1,35 +1,63 @@
-# TODO：C++ TUI Agent 下一步计划
+# TODO：C++ TUI Agent 能力完善路线图
 
 > 当前项目方向：纯 C++ 实现一个本地 TUI Coding Agent，并采用 kwoa-cli 风格 Skills Runtime 组织能力。
+>
+> 当前最新判断：项目已经有 AgentRunner、文件工具、权限系统、SessionHistory、TUI-lite、OpenAI-compatible 文本对话、Local Intent Router 和基础测试。接下来要重点补“真实工具调用闭环”和“桌面/文件管理类任务”。
 
-## 当前状态
+## 0. 当前状态快照
 
-- [x] 明确项目从 Python/Textual 方案调整为纯 C++ 方案。
-- [x] 明确采用 kwoa-cli 风格 Skills Runtime。
-- [x] 完成设计文档：`docs/00` 到 `docs/24`。
-- [x] 按项目要求补充 `.ai_history/logs/` AI 协作记录。
-- [x] 新增 C++ 工程骨架。
-- [x] 新增 Minimal AgentRunner。
-- [x] 新增 Tool / ToolRegistry 抽象。
-- [x] 新增 Provider / MockProvider 抽象。
-- [x] 新增 Done 虚拟工具处理。
-- [x] 新增 FileTools + WorkspaceGuard。
-- [x] 新增 PermissionGate。
-- [x] 新增 Controlled Shell Tool。
-- [x] 新增 Write / Edit Tools。
-- [x] 新增 SessionHistory / AuditLog。
-- [x] 新增 Minimal TUI-lite 入口。
-- [x] 新增类似 `.codex` 的 TOML 配置目录。
-- [x] 新增 ConfigLoader 和项目级覆盖用户级配置。
-- [x] 新增 ProviderFactory 和 mock terminal chat。
-- [x] 新增 OpenAI-compatible Provider 文本对话接入。
-- [x] 新增 Local Intent Router。
-- [x] 新增 Windows 简版 `run_shell` 支持。
-- [x] 新增 `tests/test_openai_compatible_provider.cpp`。
-- [x] 新增 `tests/test_intent_classifier.cpp`。
-- [x] 创建 `deliverables/` 可运行验证产物目录。
+- [x] 纯 C++ 工程骨架。
+- [x] Minimal AgentRunner。
+- [x] Tool / ToolRegistry 抽象。
+- [x] Provider / MockProvider 抽象。
+- [x] OpenAI-compatible Provider 文本对话。
+- [x] Done 虚拟工具处理。
+- [x] FileTools + WorkspaceGuard。
+- [x] PermissionGate。
+- [x] Controlled Shell Tool。
+- [x] Windows 简版 `run_shell`。
+- [x] Write / Edit Tools。
+- [x] SessionHistory / AuditLog。
+- [x] TUI-lite 入口。
+- [x] 类似 `.codex` 的 TOML 配置目录。
+- [x] 用户级 / 项目级配置，项目级覆盖用户级。
+- [x] Local Intent Router。
+- [x] `tests/test_agent_runner.cpp`。
+- [x] `tests/test_file_tools.cpp`。
+- [x] `tests/test_permission_gate.cpp`。
+- [x] `tests/test_shell_tool.cpp`。
+- [x] `tests/test_write_edit_tools.cpp`。
+- [x] `tests/test_session_history.cpp`。
+- [x] `tests/test_tui_app.cpp`。
+- [x] `tests/test_config_loader.cpp`。
+- [x] `tests/test_openai_compatible_provider.cpp`。
+- [x] `tests/test_intent_classifier.cpp`。
+- [x] `deliverables/` 目录。
 
-## 作业要求对齐状态
+## 1. 当前最大问题
+
+用户现在已经开始提出更接近真实 Agent 的任务：
+
+```text
+列出桌面文件
+移动图片到新文件夹
+整理下载目录
+把桌面截图归档
+找出最近修改的文档
+```
+
+这些任务和“仓库内 Coding Agent”不同，涉及 **用户主目录 / 桌面 / 下载目录 / 图片目录** 等 workspace 外路径。当前工具的 `WorkspaceGuard` 主要限制在项目 workspace 内，因此：
+
+- [ ] 不能安全访问 `Desktop`。
+- [ ] 不能安全访问 `Downloads`。
+- [ ] 不能移动真实用户文件。
+- [ ] 不能按扩展名批量分类图片。
+- [ ] 不能做 dry-run 预览。
+- [ ] 不能在 TUI 中清晰展示“即将移动哪些文件”。
+
+因此下一步优先级需要从“只做代码仓库工具”扩展为“安全本地文件管理工具”。
+
+## 2. 作业要求对齐状态
 
 | 作业要求 | 当前状态 | 还缺什么 |
 | --- | --- | --- |
@@ -43,39 +71,61 @@
 | 用户拒绝授权不得执行，拒绝结果进入上下文 | 已完成核心机制 | PermissionGate / Local Intent Router 均记录拒绝结果 |
 | WPS CodingPlan 协议 | 未完成 | 需要 `CodingPlanProvider`、工具调用解析、流式输出、超时、重试 |
 | 多轮会话上下文管理 | 部分完成 | 已有 SessionHistory / AuditLog；还缺 AgentLoop 多轮会话组织和 TUI 展示 |
-| 用户级 / 项目级配置，项目级优先 | 已完成基础版 | 后续可增强配置保存命令 |
+| 用户级 / 项目级配置，项目级优先 | 已完成基础版 | 后续可增强配置保存命令、allowed_roots 配置 |
 | TUI 内置命令 | 部分完成 | 已有 `/help`、`/clear`、`/model`、`/status`、`/exit`、`/skills`、`/api`、`/config`、`/interrupt`；还缺接 AgentLoop 后的真实状态 |
 | 不使用第三方 Agent SDK / Framework | 符合 | 继续保持核心 AgentLoop、工具、权限、会话自行实现 |
 | `.ai_history/logs/` 必须提交 | 已完成并持续补充 | 每轮关键设计继续补日志 |
 | `deliverables/` 可运行验证产物和截图 | 部分完成 | 目录和计划已创建，还缺真实运行日志和关键截图 |
-| 测试至少覆盖 Agent 主循环、工具调用结果回传、权限确认与拒绝、配置优先级、Mock LLM Provider | 基础覆盖完成 | 已覆盖 AgentRunner、工具、权限、MockProvider、会话记录、TUI 命令、配置优先级、IntentClassifier；后续补真实 Provider tool_calls 测试 |
+| 测试至少覆盖 Agent 主循环、工具调用结果回传、权限确认与拒绝、配置优先级、Mock LLM Provider | 基础覆盖完成 | 已覆盖 AgentRunner、工具、权限、MockProvider、会话记录、TUI 命令、配置优先级、IntentClassifier；后续补真实 Provider tool_calls、桌面文件管理测试 |
 
-## 当前已验证命令
+## 3. 下一步优先级
 
-```bash
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
+### P0. 安全本地文件管理能力
 
-验证记录见：
+目标：支持类似下面的任务：
 
 ```text
-docs/06-build-verification.md
-docs/08-file-tools-workspace-guard.md
-docs/10-permission-gate-verification.md
-docs/12-controlled-shell-tool-verification.md
-docs/14-write-edit-tools-verification.md
-docs/16-session-history-audit-log-verification.md
-docs/18-minimal-tui-config-interrupt-verification.md
-docs/20-config-provider-terminal-chat-verification.md
-docs/22-openai-compatible-provider-verification.md
-docs/24-local-intent-router-verification.md
+列出桌面文件
+把桌面图片移动到 Pictures/桌面图片
+把下载目录里的 PDF 移到 Documents/PDF
+创建一个新文件夹并移动所有 PNG 图片进去
 ```
 
-## 下一步优先级
+需要新增：
 
-### 1. OpenAI-compatible tool_calls 完整闭环
+- [ ] `docs/25-file-manager-tools-design.md`。
+- [ ] `include/agent_tui/filesystem/KnownPaths.hpp`。
+- [ ] `include/agent_tui/filesystem/AllowedRoots.hpp`。
+- [ ] `include/agent_tui/tools/FileManagerTools.hpp`。
+- [ ] `tests/test_file_manager_tools.cpp`。
+
+建议工具：
+
+- [ ] `list_path`：列出允许根目录下的文件，可访问 Desktop / Downloads / Pictures。
+- [ ] `make_dir`：创建目录，需要确认。
+- [ ] `move_file`：移动单个文件，需要确认。
+- [ ] `move_files_by_extension`：按扩展名移动文件，需要确认。
+- [ ] `copy_file`：复制文件，需要确认。
+- [ ] `delete_file_safe`：移动到回收站或 `.trash`，需要确认，第一版不要永久删除。
+- [ ] `dry_run_file_plan`：只生成计划，不执行。
+
+安全策略：
+
+- [ ] 默认只允许 workspace。
+- [ ] 可选允许用户主目录下的 Desktop / Downloads / Documents / Pictures。
+- [ ] 配置字段 `allowed_roots`。
+- [ ] 任何跨目录移动必须先展示 dry-run 计划。
+- [ ] 写入、移动、复制、删除必须确认。
+- [ ] 不允许访问系统目录，例如 `C:\Windows`、`/System`、`/etc`。
+
+Local Intent Router 增强：
+
+- [ ] `列出桌面文件` -> `list_path Desktop`。
+- [ ] `列出下载目录` -> `list_path Downloads`。
+- [ ] `移动图片到新文件夹` -> 生成 dry-run + `move_files_by_extension`。
+- [ ] `把桌面 png 移到 xxx` -> 识别 source=Desktop, ext=png, target=xxx。
+
+### P1. OpenAI-compatible tool_calls 完整闭环
 
 Local Intent Router 解决了常见任务直接执行的问题；下一步仍需要正式 Provider tool_calls 闭环。
 
@@ -87,10 +137,11 @@ Local Intent Router 解决了常见任务直接执行的问题；下一步仍需
 - [ ] AgentRunner + OpenAI-compatible Provider 真实工具调用闭环。
 - [ ] `tests/test_openai_compatible_tool_calls.cpp`。
 
-### 2. AgentLoop 应用层
+### P2. AgentLoop 应用层
 
 `AgentRunner` 已有核心 tool loop，TUI-lite 已有输入入口，Local Intent Router 已能跑常见本地任务，但还缺正式 AgentLoop。
 
+- [ ] `include/agent_tui/app/AgentLoop.hpp`。
 - [ ] 接收用户输入。
 - [ ] 处理内置命令。
 - [ ] 调用 SkillSelector。
@@ -98,8 +149,37 @@ Local Intent Router 解决了常见任务直接执行的问题；下一步仍需
 - [ ] 调用 AgentRunner。
 - [ ] 把事件写入 SessionHistory / AuditLog。
 - [ ] 将运行状态推给 TUI。
+- [ ] 支持 cancel / interrupt。
+- [ ] 支持本地 Intent Router 作为 fallback。
 
-### 3. SkillRuntime + kwoa-cli Skill 验证
+### P3. TUI 增强 / FTXUI 后端
+
+当前 TUI-lite 能跑，但不够像成熟 Agent。
+
+- [ ] `docs/26-ftxui-tui-backend-design.md`。
+- [ ] 增加 `TuiState`。
+- [ ] 分离 UI 状态和 Agent 执行逻辑。
+- [ ] 可选接入 FTXUI。
+- [ ] Chat panel。
+- [ ] Tool Log panel。
+- [ ] Permission Panel。
+- [ ] Status Bar。
+- [ ] Input Box。
+- [ ] Streaming 输出区域。
+- [ ] 支持上下滚动。
+
+### P4. 权限与审计增强
+
+现在已有基础 PermissionGate，但文件管理任务需要更强确认。
+
+- [ ] `ApprovalPreview`：展示即将修改的文件清单。
+- [ ] `FileOperationPlan`：移动/复制/删除前先生成计划。
+- [ ] `dry_run=true` 默认预览。
+- [ ] TUI 中支持 approve / deny / edit。
+- [ ] 审计日志记录 source、target、operation、count、timestamp。
+- [ ] 拒绝后把拒绝结果进入会话上下文。
+
+### P5. SkillRuntime + kwoa-cli Skill 验证
 
 实现通用 SkillRuntime，再用 `kwoa_cli` 作为第一个真实 Skill 验证场景。
 
@@ -113,7 +193,7 @@ Local Intent Router 解决了常见任务直接执行的问题；下一步仍需
 - [ ] `auth status` 作为只读初始化检查。
 - [ ] IM / KDocs 写操作必须走 PermissionGate。
 
-### 4. CodingPlan Provider Skeleton
+### P6. CodingPlan Provider Skeleton
 
 作业明确要求 WPS CodingPlan 协议，需单独 Provider。
 
@@ -124,57 +204,72 @@ Local Intent Router 解决了常见任务直接执行的问题；下一步仍需
 - [ ] 基础重试。
 - [ ] Provider 错误回传。
 
-### 5. Minimal TUI 增强
+### P7. 测试补齐
 
-当前已有 TUI-lite，后续增强为更接近题目要求的结构化展示。
+现有测试还偏框架层，需要补真实使用场景。
 
-- [ ] Tool Call Log。
-- [ ] Tool Result Log。
-- [ ] Permission Panel。
-- [ ] AgentLoop 状态展示：Idle / Thinking / CallingTool / WaitingApproval / RunningTool / Done / Failed。
-- [ ] 流式输出区域。
+- [ ] `tests/test_file_manager_tools.cpp`。
+- [ ] `tests/test_allowed_roots.cpp`。
+- [ ] `tests/test_local_desktop_intents.cpp`。
+- [ ] `tests/test_openai_compatible_tool_calls.cpp`。
+- [ ] `tests/test_agent_loop.cpp`。
+- [ ] `tests/test_permission_preview.cpp`。
+- [ ] `tests/test_tui_state.cpp`。
+- [ ] Windows shell 行为测试。
+- [ ] 大文件 / 二进制文件跳过测试。
+- [ ] Unicode 中文路径测试。
 
-### 6. Deliverables 真实验证产物
+### P8. Deliverables 真实验证产物
 
 最后阶段补可运行验证产物和截图。
 
 - [ ] `deliverables/run-log.md`。
 - [ ] `deliverables/demo-task.md`。
+- [ ] `deliverables/demo-desktop-file-management.md`。
 - [ ] `deliverables/screenshots/01-tui-start.png`。
 - [ ] `deliverables/screenshots/02-tool-call.png`。
 - [ ] `deliverables/screenshots/03-permission-confirm.png`。
 - [ ] `deliverables/screenshots/04-test-run.png`。
 - [ ] `deliverables/screenshots/05-final-answer.png`。
+- [ ] `deliverables/screenshots/06-desktop-file-plan.png`。
 
-## 刚完成的提交
-
-```text
-feat: route common local intents to tools
-```
-
-已包含：
-
-- `docs/23-local-intent-router-design.md`。
-- `include/agent_tui/intent/Intent.hpp`。
-- `include/agent_tui/intent/IntentClassifier.hpp`。
-- `tests/test_intent_classifier.cpp`。
-- `docs/24-local-intent-router-verification.md`。
-
-已实现：
-
-- `ls` / `dir` / `list` -> `list_dir`。
-- `read <file>` / `读取 <file>` -> `read_file`。
-- `search <query>` / `搜索 <query>` -> `search_text`。
-- `configure` -> `cmake -S . -B build`。
-- `build` / `编译` -> `cmake --build build`。
-- `test` / `运行测试` -> `ctest --test-dir build --output-on-failure`。
-- Shell 意图执行前需要确认。
-- Windows 下 `run_shell` 简版可用。
-
-## 下一次最建议做的提交
+## 4. 推荐下一次提交
 
 ```text
-feat: add openai compatible tool call loop
+feat: add safe file manager tools
 ```
 
-目标：从 Local Intent Router 过渡到真实模型 tool_calls 驱动的完整 AgentLoop。
+建议包含：
+
+- `docs/25-file-manager-tools-design.md`。
+- `include/agent_tui/filesystem/KnownPaths.hpp`。
+- `include/agent_tui/filesystem/AllowedRoots.hpp`。
+- `include/agent_tui/tools/FileManagerTools.hpp`。
+- `tests/test_file_manager_tools.cpp`。
+
+第一批能力：
+
+```text
+list desktop
+list downloads
+make dir
+move image files by extension with dry-run
+confirm before move
+```
+
+这样才能覆盖用户说的：
+
+```text
+列出桌面文件
+移动图片到新文件夹
+```
+
+## 5. 当前不要急着做
+
+- 不要先做复杂多 Agent。
+- 不要先做向量数据库。
+- 不要先做 MCP。
+- 不要直接开放全盘文件权限。
+- 不要做永久删除。
+- 不要跳过 dry-run 预览。
+- 不要把桌面/下载目录操作混进 WorkspaceGuard，要单独做 AllowedRoots。
