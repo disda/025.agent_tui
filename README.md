@@ -18,6 +18,8 @@
 - [FileTools + WorkspaceGuard 验证记录](./docs/08-file-tools-workspace-guard.md)
 - [PermissionGate 技术设计](./docs/09-permission-gate-design.md)
 - [PermissionGate 验证记录](./docs/10-permission-gate-verification.md)
+- [Controlled Shell Tool 技术设计](./docs/11-controlled-shell-tool-design.md)
+- [Controlled Shell Tool 验证记录](./docs/12-controlled-shell-tool-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
