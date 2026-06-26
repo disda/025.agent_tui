@@ -28,6 +28,8 @@
 - [Minimal TUI + Interrupt + API Config 验证说明](./docs/18-minimal-tui-config-interrupt-verification.md)
 - [Config + Provider + Terminal Chat 技术设计](./docs/19-config-provider-terminal-chat-design.md)
 - [Config + Provider + Terminal Chat 验证说明](./docs/20-config-provider-terminal-chat-verification.md)
+- [OpenAI-compatible Provider 技术设计](./docs/21-openai-compatible-provider-design.md)
+- [OpenAI-compatible Provider 验证说明](./docs/22-openai-compatible-provider-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
@@ -67,28 +69,30 @@ Windows Debug 构建示例：
 配置示例：
 
 ```toml
-provider = "mock"
-model = "mock-model"
-api_base = ""
+provider = "openai-compatible"
+model = "gpt-4.1"
+api_base = "https://api.openai.com/v1"
 api_key_env = "OPENAI_API_KEY"
 timeout_seconds = 60
 max_loops = 8
 ```
 
+PowerShell 验证 OpenAI-compatible：
+
+```powershell
+$env:OPENAI_API_KEY="你的 key"
+.\build\Debug\agent_tui.exe
+```
+
 启动后输入：
 
 ```text
-/help
-/status
-/config paths
-/config init user
 /config reload
-/api provider mock
+/api provider openai-compatible
 /api base https://api.openai.com/v1
 /api key-env OPENAI_API_KEY
 /model gpt-4.1
-hello
-/interrupt
+你好，回复一句话
 /exit
 ```
 
@@ -98,7 +102,7 @@ hello
 assistant: mock assistant: hello
 ```
 
-真实 OpenAI-compatible / CodingPlan Provider 后续接入。
+`openai-compatible` provider 会调用 `api_base + /chat/completions`。
 
 ## 验证目标
 
