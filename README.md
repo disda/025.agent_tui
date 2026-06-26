@@ -24,6 +24,8 @@
 - [Write / Edit Tools 验证记录](./docs/14-write-edit-tools-verification.md)
 - [SessionHistory / AuditLog 技术设计](./docs/15-session-history-audit-log-design.md)
 - [SessionHistory / AuditLog 验证说明](./docs/16-session-history-audit-log-verification.md)
+- [Minimal TUI + Interrupt + API Config 技术设计](./docs/17-minimal-tui-config-interrupt-design.md)
+- [Minimal TUI + Interrupt + API Config 验证说明](./docs/18-minimal-tui-config-interrupt-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
 - [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
@@ -34,6 +36,31 @@
 cmake -S . -B build
 cmake --build build
 ctest --test-dir build --output-on-failure
+```
+
+## Run
+
+```bash
+./build/agent_tui
+```
+
+Windows Debug 构建示例：
+
+```powershell
+.\build\Debug\agent_tui.exe
+```
+
+启动后输入：
+
+```text
+/help
+/status
+/api provider openai
+/api base https://api.openai.com/v1
+/api key-env OPENAI_API_KEY
+/model gpt-4.1
+/interrupt
+/exit
 ```
 
 ## 验证目标
