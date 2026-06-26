@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <sstream>
 #include <string>
@@ -73,7 +74,21 @@ inline std::string format_result(int exit_code, bool timeout, const std::string&
     return out.str();
 }
 
-#ifndef _WIN32
+#ifdef _WIN32
+inline std::string quote_for_cmd_cd(const std::filesystem::path& path) {
+    std::string value = path.string();
+    std::string quoted = "\"\"";
+    for (const char ch : value) {
+        if (ch == '"') {
+            quoted += "\"\"";
+        } else {
+            quoted += ch;
+        }
+    }
+    quoted += "\"\"";
+    return quoted;
+}
+#else
 inline bool set_nonblocking(int fd, std::string& error) {
     const int flags = fcntl(fd, F_GETFL, 0);
     if (flags == -1) {
@@ -145,16 +160,34 @@ public:
         }
 
 #ifdef _WIN32
-        (void)timeout_seconds;
-        (void)max_output_bytes;
-        return ToolResult::failure("run_shell is not implemented on Windows yet");
+        return run_windows(command, cwd, timeout_seconds, max_output_bytes);
 #else
         return run_posix(command, cwd, timeout_seconds, max_output_bytes);
 #endif
     }
 
 private:
-#ifndef _WIN32
+#ifdef _WIN32
+    ToolResult run_windows(const std::string& command,
+                           const std::filesystem::path& cwd,
+                           int timeout_seconds,
+                           std::size_t max_output_bytes) {
+        (void)timeout_seconds;
+        const auto full_command = "cmd /C \"cd /d " + shell_tool_detail::quote_for_cmd_cd(cwd) + " && " + command + " 2>&1\"";
+        FILE* pipe = _popen(full_command.c_str(), "r");
+        if (pipe == nullptr) {
+            return ToolResult::failure("failed to start command with _popen");
+        }
+
+        std::string output;
+        char buffer[4096];
+        while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            shell_tool_detail::append_bounded(output, buffer, std::char_traits<char>::length(buffer), max_output_bytes);
+        }
+        const int exit_code = _pclose(pipe);
+        return ToolResult::success(shell_tool_detail::format_result(exit_code, false, output, {}));
+    }
+#else
     ToolResult run_posix(const std::string& command,
                          const std::filesystem::path& cwd,
                          int timeout_seconds,
