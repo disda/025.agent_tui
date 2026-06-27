@@ -1,388 +1,168 @@
-# C++ TUI Agent 中文实施计划（Skills Runtime 版）
+# C++ TUI Coding Agent 中文实施计划
 
-> 本计划将原 Python/Textual 实施方案调整为纯 C++ 方案，并采用 kwoa-cli 风格 Skills Runtime 组织 Agent 能力。实施时建议按任务逐项推进：先写测试，再实现，再运行验证。
+> 当前计划以 L2 题目为准：先实现一个可运行的 TUI Coding Agent。主线是模型驱动工具调用，不再把规则 Intent、Skills Runtime、kwoa-cli 或桌面文件管理放在当前优先级。
 
 ## 1. 目标
 
-从零实现一个最小可用的本地 TUI 编码 Agent，使其能理解用户开发任务、读取仓库上下文、调用结构化工具、执行权限确认、把工具结果回传给模型继续推理，并产出 L2 认证要求的测试与交付物。
+从零实现一个最小可用的本地 TUI 编码 Agent。接入 API 后，用户输入简单开发任务，Agent 能自主读取仓库、写入代码、执行命令、根据工具结果继续推理，并给出最终答复。
 
-最终程序应具备：
-
-- C++ TUI 交互界面
-- 自研 Agent Loop
-- 自研 Tool System
-- kwoa-cli 风格 Skill Runtime
-- 权限确认与拒绝处理
-- WPS CodingPlan Provider 适配
-- Session History 与 Audit Log
-- 用户级 / 项目级配置管理
-- Mock Provider 测试闭环
-- 可运行验证产物
-
-## 2. 总体架构
+第一阶段验收目标：
 
 ```text
-TUI Layer
-  ↓
-App Controller
-  ↓
-Agent Loop
-  ↓
-Skill Selector
-  ↓
-Provider Adapter
-  ↓
-Tool Call Parser
-  ↓
-Permission Gate
-  ↓
-Tool Registry
-  ↓
-Session + Audit Log
+用户输入：实现一个简单代码 demo
+  -> Provider 返回 write_file tool_call
+  -> TUI 请求写文件确认
+  -> ToolRegistry 执行 write_file
+  -> Provider 看到 tool_result 后继续
+  -> Provider 返回 run_shell tool_call
+  -> TUI 请求命令确认
+  -> ToolRegistry 执行 run_shell
+  -> Provider 看到执行结果后返回最终答案
 ```
 
-核心原则：
+## 2. 当前架构主线
 
-- Agent Loop、工具系统、权限控制、会话管理必须自行实现。
-- 第三方库只能用于 TUI 渲染、HTTP 请求、JSON/YAML 解析、日志和测试等非核心能力。
-- Skill 只描述能力，不直接执行。
+```text
+TUI
+  -> AgentRunner
+  -> Provider
+  -> ToolCall parser
+  -> Permission / ApprovalService
+  -> ToolRegistry
+  -> SessionHistory / AuditLog
+  -> Provider 继续推理
+```
+
+约束：
+
+- Agent Loop、工具系统、权限控制、会话管理自行实现。
+- Provider 只负责模型协议，不执行工具。
 - Tool 是唯一执行入口。
-- Provider 只负责模型协议，不掌控 Agent 流程。
+- `write_file`、`edit_file`、`run_shell` 必须确认。
+- Local Intent Router 只作为临时快捷命令，不承担自然语言理解主路径。
 
-## 3. 技术栈建议
+## 3. 当前已完成
 
-- C++20
-- CMake
-- FTXUI：终端 TUI
-- nlohmann/json：JSON 与工具 schema
-- yaml-cpp：配置和 skill.yaml
-- cpp-httplib 或 cpr/libcurl：HTTP Provider
-- doctest 或 Catch2：测试
-- std::filesystem：仓库文件操作
+- C++20 + CMake 工程。
+- TUI-lite 主入口。
+- 配置加载：用户级 + 项目级，项目级优先。
+- Provider 抽象、MockProvider、OpenAI-compatible Provider 基础版。
+- AgentRunner 工具循环。
+- ToolRegistry。
+- 文件只读工具：`list_dir`、`read_file`、`glob_files`、`search_text`。
+- 写编辑工具：`write_file`、`edit_file`。
+- Shell 工具：`run_shell`。
+- 权限确认抽象：ApprovalService。
+- SessionHistory / AuditLog。
+- TUI 第一版已接入 AgentRunner。
+- `mock-agent-demo` 已能通过 TUI tool loop 写出 `demo.py`。
 
-## 4. 目录规划
+## 4. P0 实施计划：代码 Demo 闭环
 
-```text
-.
-├── CMakeLists.txt
-├── README.md
-├── config.example.yaml
-├── docs/
-│   ├── 00-implementation-plan.md
-│   ├── 01-skill-standard.md
-│   ├── 02-agent-loop-and-runtime.md
-│   └── 03-delivery-roadmap.md
-├── output/
-│   └── l2-agent-tui-task.md
-├── skills/
-│   ├── repo_reader/
-│   │   ├── skill.yaml
-│   │   └── SKILL.md
-│   ├── code_editor/
-│   │   ├── skill.yaml
-│   │   └── SKILL.md
-│   ├── shell_runner/
-│   │   ├── skill.yaml
-│   │   └── SKILL.md
-│   ├── cpp_project/
-│   │   ├── skill.yaml
-│   │   └── SKILL.md
-│   └── tui_agent/
-│       ├── skill.yaml
-│       └── SKILL.md
-├── include/
-│   └── agent_tui/
-│       ├── app/
-│       │   └── App.hpp
-│       ├── tui/
-│       │   ├── TuiApp.hpp
-│       │   └── TuiEvent.hpp
-│       ├── agent/
-│       │   ├── AgentLoop.hpp
-│       │   ├── AgentEvent.hpp
-│       │   ├── Message.hpp
-│       │   └── ToolCall.hpp
-│       ├── session/
-│       │   ├── Session.hpp
-│       │   └── AuditLog.hpp
-│       ├── skills/
-│       │   ├── Skill.hpp
-│       │   ├── SkillRegistry.hpp
-│       │   ├── SkillSelector.hpp
-│       │   └── SkillLoader.hpp
-│       ├── tools/
-│       │   ├── Tool.hpp
-│       │   ├── ToolRegistry.hpp
-│       │   ├── FileTools.hpp
-│       │   └── ShellTool.hpp
-│       ├── permissions/
-│       │   ├── Permission.hpp
-│       │   └── ApprovalService.hpp
-│       ├── llm/
-│       │   ├── Provider.hpp
-│       │   ├── MockProvider.hpp
-│       │   ├── OpenAICompatibleProvider.hpp
-│       │   └── CodingPlanProvider.hpp
-│       └── config/
-│           └── Config.hpp
-├── src/
-│   ├── main.cpp
-│   ├── app/
-│   ├── tui/
-│   ├── agent/
-│   ├── session/
-│   ├── skills/
-│   ├── tools/
-│   ├── permissions/
-│   ├── llm/
-│   └── config/
-├── tests/
-│   ├── test_agent_loop.cpp
-│   ├── test_tool_registry.cpp
-│   ├── test_skills.cpp
-│   ├── test_permissions.cpp
-│   ├── test_config.cpp
-│   └── test_mock_provider.cpp
-├── .ai_history/
-│   └── logs/
-│       └── .gitkeep
-└── deliverables/
-    ├── README.md
-    └── demo-task.md
-```
+### P0-A：TUI 接入 AgentRunner
 
-## 5. 核心数据结构
+状态：已完成第一版。
 
-### Message
+已完成内容：
 
-```cpp
-enum class Role {
-    System,
-    User,
-    Assistant,
-    Tool
-};
+- TUI 普通用户输入进入 AgentRunner。
+- TUI 注册基础仓库工具集合。
+- TUI ApprovalService 能对 `write_file` 进行确认。
+- 新增测试覆盖 `mock-agent-demo` 通过 TUI 生成 `demo.py`。
 
-struct Message {
-    Role role;
-    std::string content;
-    std::string tool_call_id;
-};
-```
+下一步：
 
-### ToolCall
+- 在 TUI 消息区显示 tool_call 参数摘要。
+- 在 TUI 消息区显示 tool_result。
+- 状态栏显示 THINKING / WAITING_APPROVAL / RUNNING_TOOL / DONE / ERROR。
 
-```cpp
-struct ToolCall {
-    std::string id;
-    std::string name;
-    nlohmann::json arguments;
-};
-```
+### P0-B：Demo 覆盖写文件和运行命令
 
-### ProviderResponse
-
-```cpp
-enum class ProviderResponseType {
-    Text,
-    ToolCalls,
-    Error
-};
-
-struct ProviderResponse {
-    ProviderResponseType type;
-    std::string text;
-    std::vector<ToolCall> tool_calls;
-    std::string error;
-};
-```
-
-### Tool
-
-```cpp
-enum class PermissionMode {
-    Auto,
-    Confirm
-};
-
-struct ToolResult {
-    bool ok;
-    std::string output;
-    std::string error;
-};
-
-class Tool {
-public:
-    virtual ~Tool() = default;
-
-    virtual std::string name() const = 0;
-    virtual std::string description() const = 0;
-    virtual nlohmann::json parameters_schema() const = 0;
-    virtual PermissionMode permission_mode() const = 0;
-
-    virtual ToolResult run(const nlohmann::json& args) = 0;
-};
-```
-
-### Skill
-
-```cpp
-struct Skill {
-    std::string id;
-    std::string name;
-    std::string description;
-    std::vector<std::string> triggers;
-    std::vector<std::string> allowed_tools;
-    std::string instruction_md;
-    int priority = 0;
-};
-```
-
-## 6. 实施任务
-
-### 任务 1：初始化 C++ 工程骨架
-
-目标：建立可编译、可测试、可运行的 C++ 项目。
-
-创建：
-
-- `CMakeLists.txt`
-- `src/main.cpp`
-- `include/agent_tui/...`
-- `tests/`
-
-验收：
-
-- `cmake -S . -B build` 通过
-- `cmake --build build` 通过
-- `ctest --test-dir build` 可运行
-
-### 任务 2：实现 Session 与 Audit Log
-
-目标：所有关键交互都能进入会话历史，并可写入 `.ai_history/logs/session.jsonl`。
-
-事件类型：
-
-- user
-- assistant
-- tool_call
-- tool_result
-- permission_request
-- permission_denial
-- error
-- status
-
-验收：
-
-- 能按顺序记录事件
-- 能 clear 当前会话
-- 权限拒绝和错误信息有明确事件类型
-
-### 任务 3：实现 Tool System
-
-目标：提供结构化工具注册、schema 暴露、工具执行和错误返回。
-
-第一批工具：
-
-- `list_dir`
-- `read_file`
-- `glob_files`
-- `search_text`
-- `write_file`
-- `edit_file`
-- `run_shell`
-
-权限：
-
-- 只读工具：Auto
-- 写入、编辑、Shell：Confirm
-
-文件工具必须限制在 workspace 根目录内，禁止通过 `../` 逃逸。
-
-### 任务 4：实现 Permission Gate
-
-目标：写文件、编辑文件和 Shell 命令必须经过用户授权。
-
-拒绝时：
-
-- 不执行工具
-- 记录 permission_denial
-- 将拒绝结果作为 tool_result 回传模型
-
-### 任务 5：实现 MockProvider
-
-目标：不用真实模型也能测试 Agent Loop。
-
-MockProvider 应支持：
-
-- 直接返回文本
-- 返回单个 tool_call
-- 返回多个 tool_call
-- 在收到 tool_result 后返回最终答案
-- 返回错误
-
-### 任务 6：实现 Agent Loop
-
-目标：跑通完整的「模型决策 -> 工具调用 -> 结果回传 -> 继续推理」流程。
-
-能力：
-
-- max_loops 防无限循环
-- 处理 tool not found
-- 处理 permission denied
-- 处理 provider error
-- 支持多轮 tool_call
-
-### 任务 7：实现 Skill Runtime
-
-目标：加载 `skills/*/skill.yaml` 与 `SKILL.md`，并根据用户输入选择相关 skill。
-
-第一版 SkillSelector 使用关键词和 trigger 匹配，不引入 embedding。
-
-### 任务 8：实现 TUI
-
-目标：终端中展示用户输入、模型回复、工具调用、工具结果、权限确认和当前状态。
-
-状态流：
+目标：
 
 ```text
-Idle -> Thinking -> CallingTool -> WaitingApproval -> RunningTool -> Done
+/api provider mock-agent-demo
+实现一个 hello world Python demo，并运行它
 ```
 
-内置命令：
+期望结果：
 
-- `/help`
-- `/clear`
-- `/status`
-- `/model`
-- `/model <name>`
-- `/skills`
-- `/exit`
+- 生成 `demo.py`。
+- 用户确认写文件。
+- 用户确认 `python3 demo.py`。
+- 输出包含 `hello from agent_tui`。
+- 最终回答说明 demo 已完成。
 
-### 任务 9：实现 Provider Adapter
+任务：
 
-Provider 接口：
+- [ ] 扩展 `mock-agent-demo`，让它依次返回 `write_file`、`run_shell`、`Done`。
+- [ ] 增加 TUI 测试，脚本输入包含两次 `y`。
+- [ ] 确认输出中包含工具执行结果。
 
-- `MockProvider`
-- `OpenAICompatibleProvider`
-- `CodingPlanProvider`
+### P0-C：真实 API tool_calls
 
-CodingPlanProvider 需要支持：
+目标：把 `mock-agent-demo` 的路径换成真实 OpenAI-compatible API。
 
-- 工具调用解析
-- 流式输出
-- 超时控制
-- 基础重试
+任务：
 
-### 任务 10：交付物与测试
+- [ ] ToolRegistry 导出 tools schema。
+- [ ] OpenAI-compatible Provider 请求体从 ToolRegistry 获取 tools schema。
+- [ ] OpenAI-compatible Provider 解析真实 `tool_calls`。
+- [ ] 修正 tool result message 格式，满足 OpenAI-compatible API 要求。
+- [ ] 运行一次真实 API demo。
+- [ ] 把运行记录写入 `deliverables/run-log.md`。
 
-测试至少覆盖：
+## 5. P1：TUI 可观察性
 
-- Agent 主循环
-- 工具调用与结果回传
-- 权限确认与拒绝
-- 配置优先级
-- Mock Provider 场景
-- Skill 加载与选择
+题目明确要求 TUI 展示过程信息，因此需要补：
 
-`deliverables/` 放置可运行验证任务和截图说明。
+- [ ] 用户输入。
+- [ ] 模型回复。
+- [ ] tool_call。
+- [ ] tool_result。
+- [ ] 权限确认。
+- [ ] 当前运行状态。
+- [ ] 错误信息。
+
+第一版可以继续保持 TUI-lite，不急于引入复杂 FTXUI 布局。
+
+## 6. P2：WPS CodingPlan Provider
+
+OpenAI-compatible 主闭环稳定后，再实现题目要求的 CodingPlan Provider：
+
+- [ ] `CodingPlanProvider`。
+- [ ] tool_call 解析。
+- [ ] 流式输出。
+- [ ] 超时控制。
+- [ ] 基础重试。
+- [ ] 错误进入 SessionHistory。
+
+## 7. P3：后续扩展
+
+以下内容不是当前主线：
+
+- Skills Runtime。
+- kwoa-cli Skill。
+- 桌面文件整理。
+- 多 Agent。
+- 向量数据库。
+- 上下文压缩。
+
+它们可以作为扩展加分项，但必须在基础 Coding Agent demo 闭环完成之后再推进。
+
+## 8. 验证命令
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+重点测试：
+
+- `agent_tui_app_tests`
+- `agent_tui_tests`
+- `agent_tui_openai_compatible_provider_tests`
+- `agent_tui_permission_gate_tests`
+- `agent_tui_write_edit_tools_tests`
+- `agent_tui_shell_tool_tests`

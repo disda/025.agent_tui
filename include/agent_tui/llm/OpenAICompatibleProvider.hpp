@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -190,7 +191,9 @@ inline std::string shell_quote(const std::filesystem::path& path) {
 }
 
 inline std::string curl_config_path(const std::filesystem::path& path) {
-    return path.generic_string();
+    auto value = path.generic_string();
+    std::replace(value.begin(), value.end(), '\\', '/');
+    return value;
 }
 
 inline std::string read_file(const std::filesystem::path& path) {

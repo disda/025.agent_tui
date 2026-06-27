@@ -6,6 +6,7 @@
 
 #include "agent_tui/config/Config.hpp"
 #include "agent_tui/llm/EchoProvider.hpp"
+#include "agent_tui/llm/MockProvider.hpp"
 #include "agent_tui/llm/OpenAICompatibleProvider.hpp"
 #include "agent_tui/llm/Provider.hpp"
 
@@ -30,6 +31,26 @@ public:
     static std::unique_ptr<Provider> create(const Config& config) {
         if (config.provider == "mock" || config.provider == "echo") {
             return std::make_unique<EchoProvider>();
+        }
+        if (config.provider == "mock-agent-demo") {
+            ToolCall write_demo;
+            write_demo.id = "call_write_demo";
+            write_demo.name = "write_file";
+            write_demo.arguments = {
+                {"path", "demo.py"},
+                {"content", "print('hello from agent_tui')\n"},
+                {"create_parent_dirs", "true"},
+            };
+
+            ToolCall done;
+            done.id = "call_done";
+            done.name = "Done";
+            done.arguments = {{"final_answer", "demo.py is ready"}};
+
+            return std::make_unique<MockProvider>(std::vector<ProviderResponse>{
+                ProviderResponse::tool_calls_response({write_demo}),
+                ProviderResponse::tool_calls_response({done}),
+            });
         }
         if (config.provider == "openai-compatible" || config.provider == "openai") {
             return std::make_unique<OpenAICompatibleProvider>(config);

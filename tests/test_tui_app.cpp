@@ -217,6 +217,32 @@ void test_chinese_write_file_without_name_defaults_to_hello_txt() {
     std::filesystem::remove_all(root);
 }
 
+void test_tui_runs_agent_tool_loop_for_code_demo() {
+    const auto root = make_test_root();
+    std::istringstream input(
+        "/api provider mock-agent-demo\n"
+        "实现一个简单代码 demo\n"
+        "y\n"
+        "/exit\n");
+    std::ostringstream output;
+
+    TuiApp app(root);
+    app.set_streams(input, output);
+    const auto code = app.run();
+
+    assert(code == 0);
+    assert(std::filesystem::exists(root / "demo.py"));
+    {
+        std::ifstream file(root / "demo.py", std::ios::binary);
+        std::ostringstream buffer;
+        buffer << file.rdbuf();
+        assert(buffer.str().find("hello from agent_tui") != std::string::npos);
+    }
+    assert(output.str().find("Approve write_file") != std::string::npos);
+    assert(output.str().find("demo.py is ready") != std::string::npos);
+    std::filesystem::remove_all(root);
+}
+
 int main() {
     test_model_command_sets_model();
     test_api_commands_set_runtime_config_without_key_value();
@@ -231,5 +257,6 @@ int main() {
     test_windows_code_page_input_can_be_normalized_to_utf8();
     test_chinese_create_file_request_executes_locally();
     test_chinese_write_file_without_name_defaults_to_hello_txt();
+    test_tui_runs_agent_tool_loop_for_code_demo();
     return 0;
 }

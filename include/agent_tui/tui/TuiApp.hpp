@@ -5,6 +5,7 @@
 #include <cctype>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -14,12 +15,15 @@
 #include <windows.h>
 #endif
 
+#include "agent_tui/agent/AgentRunner.hpp"
 #include "agent_tui/config/ConfigLoader.hpp"
 #include "agent_tui/intent/IntentClassifier.hpp"
 #include "agent_tui/llm/ProviderFactory.hpp"
+#include "agent_tui/permissions/ApprovalService.hpp"
 #include "agent_tui/session/SessionHistory.hpp"
 #include "agent_tui/tools/FileTools.hpp"
 #include "agent_tui/tools/ShellTool.hpp"
+#include "agent_tui/tools/ToolRegistry.hpp"
 #include "agent_tui/tools/WriteEditTools.hpp"
 #include "agent_tui/tui/TuiConfig.hpp"
 #include "agent_tui/workspace/Workspace.hpp"
@@ -221,22 +225,91 @@ private:
             return;
         }
 
-        auto provider = ProviderFactory::create(config_);
-        const auto response = provider->chat({
-            Message{Role::System, "You are agent_tui, a concise local coding assistant. Answer in the user's language.", {}},
-            Message{Role::User, line, {}},
-        });
+        run_agent_loop(line);
+    }
 
-        if (response.type == ProviderResponseType::Text) {
-            add_chat_line("assistant", response.text);
-            history_.add(SessionEvent::assistant_message(response.text));
-            return;
+    class TuiApprovalService final : public ApprovalService {
+    public:
+        TuiApprovalService(std::istream& input, std::ostream& output)
+            : input_(input), output_(output) {}
+
+        ApprovalDecision request(const ToolCall& call, const Tool& tool) override {
+            output_ << "\nApprove " << tool.name() << ": " << summarize(call.arguments) << " ? [y/N] " << std::flush;
+            std::string answer;
+            if (!std::getline(input_, answer)) {
+                return ApprovalDecision::deny("approval input ended before a decision");
+            }
+            answer = lower_ascii(trim_copy(answer));
+            if (answer == "y" || answer == "yes") {
+                return ApprovalDecision::approve();
+            }
+            return ApprovalDecision::deny("user rejected in TUI");
         }
-        if (response.type == ProviderResponseType::Error) {
-            add_error_message(response.error);
-            return;
+
+    private:
+        static std::string summarize(const JsonLike& arguments) {
+            std::ostringstream out;
+            bool first = true;
+            for (const auto& [key, value] : arguments) {
+                if (!first) {
+                    out << ", ";
+                }
+                first = false;
+                out << key << "=" << truncate(value, 80);
+            }
+            return out.str();
         }
-        add_system_message("Provider returned tool_calls, but AgentLoop is not wired into TUI yet.");
+
+        static std::string truncate(const std::string& value, std::size_t max_size) {
+            if (value.size() <= max_size) {
+                return value;
+            }
+            return value.substr(0, max_size) + "...";
+        }
+
+        std::istream& input_;
+        std::ostream& output_;
+    };
+
+    void run_agent_loop(const std::string& line) {
+        try {
+            Workspace workspace(workspace_);
+            auto provider = ProviderFactory::create(config_);
+            auto registry = make_tool_registry(workspace);
+            TuiApprovalService approval(*input_, *output_);
+            AgentRunner runner(*provider, registry, approval, history_, config_.max_loops);
+            auto result = runner.run({
+                Message{Role::System, coding_agent_system_prompt(), {}},
+                Message{Role::User, line, {}},
+            });
+
+            if (result.ok()) {
+                add_chat_line("assistant", result.output);
+                return;
+            }
+            add_error_message(result.error);
+        } catch (const std::exception& error) {
+            add_error_message(error.what());
+        }
+    }
+
+    static std::string coding_agent_system_prompt() {
+        return "You are agent_tui, a local coding agent. "
+               "Use tools to inspect, create, edit, and test code when useful. "
+               "Call write_file, edit_file, or run_shell only when necessary; the TUI will ask the user for permission. "
+               "After each tool result, continue reasoning until the task is complete, then provide a concise final answer.";
+    }
+
+    static ToolRegistry make_tool_registry(const Workspace& workspace) {
+        ToolRegistry registry;
+        registry.register_tool(std::make_unique<ListDirTool>(workspace));
+        registry.register_tool(std::make_unique<ReadFileTool>(workspace));
+        registry.register_tool(std::make_unique<GlobFilesTool>(workspace));
+        registry.register_tool(std::make_unique<SearchTextTool>(workspace));
+        registry.register_tool(std::make_unique<WriteFileTool>(workspace));
+        registry.register_tool(std::make_unique<EditFileTool>(workspace));
+        registry.register_tool(std::make_unique<ShellTool>(workspace));
+        return registry;
     }
 
     bool try_handle_local_intent(const Intent& intent) {
@@ -646,10 +719,22 @@ private:
     }
 
     static std::string strip_punctuation(std::string value) {
-        while (!value.empty() && (value.back() == ',' || value.back() == '.' || value.back() == ';' || value.back() == ':' || value.back() == '，' || value.back() == '。')) {
-            value.pop_back();
+        while (!value.empty()) {
+            if (value.back() == ',' || value.back() == '.' || value.back() == ';' || value.back() == ':') {
+                value.pop_back();
+                continue;
+            }
+            if (ends_with(value, utf8_comma()) || ends_with(value, utf8_period())) {
+                value.resize(value.size() - 3);
+                continue;
+            }
+            break;
         }
         return value;
+    }
+
+    static bool ends_with(const std::string& value, const std::string& suffix) {
+        return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
     }
 
     static std::string trim_copy(std::string value) {
@@ -682,6 +767,8 @@ private:
     static std::string utf8_content_write_ascii_colon() { return bytes({0xE5, 0x86, 0x85, 0xE5, 0xAE, 0xB9, 0xE5, 0x86, 0x99, 0xE5, 0x85, 0xA5, 0x3A}); }
     static std::string utf8_write_colon() { return bytes({0xE5, 0x86, 0x99, 0xE5, 0x85, 0xA5, 0xEF, 0xBC, 0x9A}); }
     static std::string utf8_write_ascii_colon() { return bytes({0xE5, 0x86, 0x99, 0xE5, 0x85, 0xA5, 0x3A}); }
+    static std::string utf8_comma() { return bytes({0xEF, 0xBC, 0x8C}); }
+    static std::string utf8_period() { return bytes({0xE3, 0x80, 0x82}); }
 
     inline static volatile std::sig_atomic_t global_interrupted_ = 0;
 

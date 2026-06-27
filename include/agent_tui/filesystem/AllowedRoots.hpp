@@ -28,6 +28,7 @@ public:
 
     static AllowedRoots with_known_user_dirs(const std::filesystem::path& workspace) {
         AllowedRoots roots;
+        roots.resolve_known_aliases_ = true;
         roots.add_root(workspace);
         roots.add_root(KnownPaths::desktop());
         roots.add_root(KnownPaths::downloads());
@@ -52,7 +53,8 @@ public:
     const std::vector<std::filesystem::path>& roots() const { return roots_; }
 
     std::filesystem::path resolve(const std::string& alias_or_path) const {
-        auto path = KnownPaths::resolve_alias(alias_or_path.empty() ? "." : alias_or_path);
+        auto path = resolve_known_aliases_ ? KnownPaths::resolve_alias(alias_or_path.empty() ? "." : alias_or_path)
+                                           : std::filesystem::path(alias_or_path.empty() ? "." : alias_or_path);
         if (path.is_relative()) {
             if (roots_.empty()) {
                 path = std::filesystem::current_path() / path;
@@ -109,6 +111,7 @@ private:
     }
 
     std::vector<std::filesystem::path> roots_;
+    bool resolve_known_aliases_ = false;
 };
 
 }  // namespace agent_tui

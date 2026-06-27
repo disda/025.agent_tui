@@ -2,12 +2,12 @@
 
 这是「L2命题任务-从零实现一个 TUI 终端编码 Agent（发布版）」的项目工作区。
 
-当前实现方向：**纯 C++ TUI Coding Agent**，并采用 **kwoa-cli 风格 Skills Runtime** 组织 Agent 能力。
+当前实现方向：**纯 C++ TUI Coding Agent**。主线是模型驱动的 Agent Loop：接入 API 后，Agent 应能通过 tool_calls 读取仓库、写代码、运行命令，并完成一个简单代码 demo。
 
 ## 文档入口
 
 - [TODO：下一步计划](./TODO.md)
-- [C++ + Skills 实施计划](./docs/00-implementation-plan.md)
+- [C++ Coding Agent 实施计划](./docs/00-implementation-plan.md)
 - [Skills 标准设计](./docs/01-skill-standard.md)
 - [Agent Loop 与运行时设计](./docs/02-agent-loop-and-runtime.md)
 - [交付路线与验收清单](./docs/03-delivery-roadmap.md)
@@ -33,7 +33,6 @@
 - [Local Intent Router 技术设计](./docs/23-local-intent-router-design.md)
 - [Local Intent Router 验证说明](./docs/24-local-intent-router-verification.md)
 - [Deliverables 验证产物](./deliverables/README.md)
-- [kwoa-cli Skill Demo 计划](./deliverables/demo-kwoa-cli-skill.md)
 - [题目 Markdown 原文](./output/l2-agent-tui-task.md)
 
 ## Build
@@ -122,47 +121,41 @@ assistant: mock assistant: hello
 
 `openai-compatible` provider 会调用 `api_base + /chat/completions`。
 
-## Local Intents
+## Agent Loop 主路径
 
-在完整 OpenAI tool_calls 和 AgentLoop 接上前，TUI 先内置常用本地意图识别。以下输入会直接调用本地工具：
-
-```text
-ls
-list docs
-read README.md
-search AgentRunner
-configure
-build
-test
-```
-
-中文也支持一部分常用表达：
+当前主路径：
 
 ```text
-读取 README.md
-搜索 AgentRunner
-编译
-运行测试
+用户自然语言任务
+  -> Provider 返回文本或 tool_calls
+  -> AgentRunner 执行工具调用
+  -> PermissionGate 拦截 write_file / edit_file / run_shell
+  -> tool_result 回传 Provider
+  -> Provider 继续推理直到最终回答
 ```
 
-`configure` / `build` / `test` 会先询问确认：
+本地已提供一个不需要真实 API 的闭环验证 Provider：
 
 ```text
-Approve run_shell: cmake --build build ? [y/N]
+/api provider mock-agent-demo
+实现一个简单代码 demo
 ```
+
+它会通过 AgentRunner 触发 `write_file`，在用户确认后生成 `demo.py`。
+
+Local Intent Router 只作为临时快捷命令保留，不再作为自然语言任务的主路径继续扩展。
 
 ## 验证目标
 
-最终验证目标是：**加载 kwoa-cli Skill，实现 IM / KDocs 文档读取与安全写操作拦截能力**。
+当前验证目标是：**接入 API 后完成一个简单代码 demo 产出**。
 
 重点验证：
 
-- 加载 `kwoa_cli` Skill。
-- 理解 kwoa-cli 的 IM / KDocs 使用规则。
-- 执行只读 IM 查询和文档读取。
-- 对消息发送、撤回、转发、reaction、KDocs 写入等高风险操作进行权限确认。
+- 模型能返回 `write_file` / `edit_file` / `run_shell` 等 tool_calls。
+- TUI 能展示工具调用、工具结果、权限确认和当前状态。
+- 写文件、编辑文件、Shell 命令必须经过权限确认。
 - 将工具结果回传模型继续推理。
-- 在 `deliverables/` 中沉淀可运行验证产物和关键截图。
+- 最终在 `deliverables/` 中沉淀一次真实代码 demo 的运行记录和关键截图。
 
 ## 目标
 
@@ -171,7 +164,6 @@ Approve run_shell: cmake --build build ? [y/N]
 - C++ TUI 交互界面
 - 自研 Agent Loop
 - 结构化工具调用
-- kwoa-cli 风格 Skills Runtime
 - 权限确认与拒绝处理
 - WPS CodingPlan Provider 适配
 - 会话上下文与审计日志
@@ -181,7 +173,7 @@ Approve run_shell: cmake --build build ? [y/N]
 ## 设计原则
 
 - 核心 Agent 能力自行实现，不依赖第三方 Agent SDK 或 Agent Framework。
-- Skills 只负责描述能力、触发条件和行为规范；Tools 负责实际执行。
+- Tools 是唯一执行入口；规则意图只能作为快捷命令或 fallback，不能替代模型 tool_calls。
 - 只读工具可自动执行；写文件、编辑文件和 Shell 命令必须经过用户确认。
 - 所有用户输入、模型回复、工具调用、工具结果、权限拒绝和错误信息都必须进入会话历史。
 - 关键 AI 协作记录沉淀到 `.ai_history/logs/`。
@@ -219,11 +211,8 @@ Permission Gate 拦截危险操作
 - `edit_file`
 - `run_shell`
 
-第一批内置 Skills：
+后续扩展：
 
-- `repo_reader`
-- `code_editor`
-- `shell_runner`
-- `cpp_project`
-- `tui_agent`
-- `kwoa_cli`
+- WPS CodingPlan Provider
+- 更完整的 TUI tool log / permission panel
+- Skills Runtime
