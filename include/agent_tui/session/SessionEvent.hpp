@@ -19,6 +19,11 @@ enum class SessionEventType {
     ToolResult,
     PermissionDenied,
     UserFeedback,
+    ModelStarted,
+    ModelCompleted,
+    ToolStarted,
+    ToolCompleted,
+    Interrupted,
     Error,
 };
 
@@ -38,6 +43,16 @@ inline std::string session_event_type_name(SessionEventType type) {
             return "permission_denied";
         case SessionEventType::UserFeedback:
             return "user_feedback";
+        case SessionEventType::ModelStarted:
+            return "model_started";
+        case SessionEventType::ModelCompleted:
+            return "model_completed";
+        case SessionEventType::ToolStarted:
+            return "tool_started";
+        case SessionEventType::ToolCompleted:
+            return "tool_completed";
+        case SessionEventType::Interrupted:
+            return "interrupted";
         case SessionEventType::Error:
             return "error";
     }
@@ -163,6 +178,44 @@ struct SessionEvent {
         event.type = SessionEventType::UserFeedback;
         event.tool_call_id = std::move(call_id);
         event.tool_name = std::move(tool_name);
+        event.content = std::move(content);
+        return event;
+    }
+
+    static SessionEvent model_started() {
+        SessionEvent event;
+        event.type = SessionEventType::ModelStarted;
+        return event;
+    }
+
+    static SessionEvent model_completed(std::string content) {
+        SessionEvent event;
+        event.type = SessionEventType::ModelCompleted;
+        event.content = std::move(content);
+        return event;
+    }
+
+    static SessionEvent tool_started(const ToolCall& call) {
+        SessionEvent event;
+        event.type = SessionEventType::ToolStarted;
+        event.tool_call_id = call.id;
+        event.tool_name = call.name;
+        event.arguments = call.arguments;
+        return event;
+    }
+
+    static SessionEvent tool_completed(std::string call_id, std::string tool_name, std::string content) {
+        SessionEvent event;
+        event.type = SessionEventType::ToolCompleted;
+        event.tool_call_id = std::move(call_id);
+        event.tool_name = std::move(tool_name);
+        event.content = std::move(content);
+        return event;
+    }
+
+    static SessionEvent interrupted(std::string content) {
+        SessionEvent event;
+        event.type = SessionEventType::Interrupted;
         event.content = std::move(content);
         return event;
     }

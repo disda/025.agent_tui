@@ -43,6 +43,7 @@ public:
 
         for (int step = 0; step < max_loops_; ++step) {
             const auto tools_schema_json = tools_.tools_schema_json(tool_exposure_policy_);
+            log_model_started();
             auto response = provider_.chat_stream(
                 messages,
                 tools_schema_json,
@@ -55,16 +56,19 @@ public:
             if (response.type == ProviderResponseType::Text) {
                 messages.push_back(Message{Role::Assistant, response.text, {}});
                 log_assistant(response.text);
+                log_model_completed(response.text);
                 last_messages_ = messages;
                 return AgentResult::done(response.text);
             }
 
             if (response.type == ProviderResponseType::Error) {
+                log_model_completed(response.error);
                 log_error(response.error);
                 last_messages_ = messages;
                 return AgentResult::failed(response.error);
             }
 
+            log_model_completed("tool_calls");
             messages.push_back(Message{Role::Assistant, {}, {}, response.tool_calls});
             for (const auto& call : response.tool_calls) {
                 log_tool_call(call);
@@ -74,6 +78,7 @@ public:
                     const auto answer = it == call.arguments.end() ? std::string{"Done"} : it->second;
                     messages.push_back(Message{Role::Assistant, answer, {}});
                     log_assistant(answer);
+                    log_model_completed(answer);
                     last_messages_ = messages;
                     return AgentResult::done(answer);
                 }
@@ -127,6 +132,7 @@ public:
                     }
                 }
 
+                log_tool_started(call);
                 auto result = tool->run(arguments);
                 auto output = result.ok ? result.output : result.error;
                 messages.push_back(Message{
@@ -134,6 +140,7 @@ public:
                     output,
                     call.id,
                 });
+                log_tool_completed(call.id, call.name, output);
                 log_tool_result(call.id, call.name, output);
                 if (!result.ok) {
                     log_error(output);
@@ -182,6 +189,14 @@ private:
         record_event(SessionEvent::assistant_message(content));
     }
 
+    void log_model_started() {
+        record_event(SessionEvent::model_started());
+    }
+
+    void log_model_completed(const std::string& content) {
+        record_event(SessionEvent::model_completed(content));
+    }
+
     void log_tool_call(const ToolCall& call) {
         record_event(SessionEvent::tool_call(call));
     }
@@ -192,6 +207,14 @@ private:
 
     void log_tool_result(const std::string& call_id, const std::string& tool_name, const std::string& content) {
         record_event(SessionEvent::tool_result(call_id, tool_name, content));
+    }
+
+    void log_tool_started(const ToolCall& call) {
+        record_event(SessionEvent::tool_started(call));
+    }
+
+    void log_tool_completed(const std::string& call_id, const std::string& tool_name, const std::string& content) {
+        record_event(SessionEvent::tool_completed(call_id, tool_name, content));
     }
 
     void log_permission_denied(const std::string& call_id, const std::string& tool_name, const std::string& content) {

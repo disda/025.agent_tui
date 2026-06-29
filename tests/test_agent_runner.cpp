@@ -1,9 +1,11 @@
 #include "agent_tui/agent/AgentRunner.hpp"
 #include "agent_tui/llm/MockProvider.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace agent_tui;
 
@@ -291,6 +293,42 @@ void test_agent_runner_blocks_tool_call_denied_by_exposure_policy() {
     assert(runner.last_messages()[2].content.find("Tool not allowed by exposure policy: run_shell") != std::string::npos);
 }
 
+void test_agent_runner_emits_model_and_tool_lifecycle_events() {
+    ToolCall echo_call;
+    echo_call.id = "call_1";
+    echo_call.name = "echo";
+    echo_call.arguments = {{"text", "hello"}};
+
+    ToolCall done_call;
+    done_call.id = "call_2";
+    done_call.name = "Done";
+    done_call.arguments = {{"final_answer", "finished"}};
+
+    MockProvider provider({
+        ProviderResponse::tool_calls_response({echo_call}),
+        ProviderResponse::tool_calls_response({done_call}),
+    });
+    ToolRegistry registry;
+    registry.register_tool(std::make_unique<EchoTool>());
+    AgentRunner runner(provider, registry, 4);
+
+    std::vector<std::string> events;
+    runner.set_observer(AgentRunObserver{
+        [&](const SessionEvent& event) {
+            events.push_back(session_event_type_name(event.type));
+        },
+        {},
+    });
+
+    auto result = runner.run({Message{Role::User, "run", {}}});
+
+    assert(result.ok());
+    assert(std::find(events.begin(), events.end(), "model_started") != events.end());
+    assert(std::find(events.begin(), events.end(), "model_completed") != events.end());
+    assert(std::find(events.begin(), events.end(), "tool_started") != events.end());
+    assert(std::find(events.begin(), events.end(), "tool_completed") != events.end());
+}
+
 int main() {
     test_single_tool_call_then_done();
     test_tool_not_found_goes_back_to_model();
@@ -301,5 +339,6 @@ int main() {
     test_agent_runner_uses_streaming_chat_when_tools_are_available();
     test_agent_runner_uses_tool_exposure_policy_for_provider_schema();
     test_agent_runner_blocks_tool_call_denied_by_exposure_policy();
+    test_agent_runner_emits_model_and_tool_lifecycle_events();
     return 0;
 }

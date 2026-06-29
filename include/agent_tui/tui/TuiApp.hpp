@@ -309,7 +309,9 @@ private:
             render();
             runner.set_observer(AgentRunObserver{
                 [&](const SessionEvent& event) {
-                    if (event.type == SessionEventType::UserInput || event.type == SessionEventType::AssistantMessage) {
+                    if (event.type == SessionEventType::UserInput ||
+                        event.type == SessionEventType::AssistantMessage ||
+                        event.type == SessionEventType::ModelCompleted) {
                         return;
                     }
                     if (event.type == SessionEventType::ToolCall) {
@@ -607,6 +609,20 @@ private:
                 break;
             case SessionEventType::ToolResult:
                 transcript_.add_tool_result(event.tool_name, summarize_tool_result(event.content));
+                break;
+            case SessionEventType::ModelStarted:
+                transcript_.add_agent("model request started");
+                break;
+            case SessionEventType::ModelCompleted:
+                break;
+            case SessionEventType::ToolStarted:
+                transcript_.add_agent("running " + event.tool_name);
+                break;
+            case SessionEventType::ToolCompleted:
+                transcript_.add_agent("completed " + event.tool_name);
+                break;
+            case SessionEventType::Interrupted:
+                transcript_.add_error(event.content);
                 break;
             case SessionEventType::Error:
                 transcript_.add_error(event.content);

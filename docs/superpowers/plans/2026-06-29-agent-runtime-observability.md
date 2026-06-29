@@ -554,7 +554,7 @@ git commit -m "Harden streaming tool call parsing"
 - Modify: `tests/test_agent_runner.cpp`
 - Modify: `tests/test_tui_app.cpp`
 
-- [ ] **Step 1: Write failing AgentRunner lifecycle order test**
+- [x] **Step 1: Write failing AgentRunner lifecycle order test**
 
 Add to `tests/test_agent_runner.cpp`:
 
@@ -596,7 +596,7 @@ void test_agent_runner_emits_model_and_tool_lifecycle_events() {
 }
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run:
 
@@ -607,7 +607,7 @@ cmake --build build --config Debug --target agent_tui_tests
 
 Expected: compile or assertion failure because event types do not exist.
 
-- [ ] **Step 3: Extend `SessionEventType`**
+- [x] **Step 3: Extend `SessionEventType`**
 
 In `SessionEvent.hpp`, add:
 
@@ -639,7 +639,7 @@ static SessionEvent tool_completed(std::string call_id, std::string tool_name, s
 static SessionEvent interrupted(std::string content);
 ```
 
-- [ ] **Step 4: Emit lifecycle events in `AgentRunner`**
+- [x] **Step 4: Emit lifecycle events in `AgentRunner`**
 
 At the start of each provider request:
 
@@ -665,7 +665,7 @@ After tool execution:
 record_event(SessionEvent::tool_completed(call.id, call.name, output));
 ```
 
-- [ ] **Step 5: Render lifecycle events in `TuiApp`**
+- [x] **Step 5: Render lifecycle events in `TuiApp`**
 
 In `add_flow_line`:
 
@@ -684,7 +684,7 @@ case SessionEventType::ToolCompleted:
     break;
 ```
 
-- [ ] **Step 6: Run AgentRunner and TUI tests**
+- [x] **Step 6: Run AgentRunner and TUI tests**
 
 Run:
 
