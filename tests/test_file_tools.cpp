@@ -62,6 +62,9 @@ void test_read_file(const std::filesystem::path& root) {
     auto result = tool.run({{"path", "README.md"}});
     assert(result.ok);
     assert(result.output.find("hello workspace") != std::string::npos);
+    assert(result.metadata.at("path").find("README.md") != std::string::npos);
+    assert(result.metadata.at("truncated") == "false");
+    assert(result.metadata.find("bytes_returned") != result.metadata.end());
 }
 
 void test_read_file_supports_offset_limit_and_truncation(const std::filesystem::path& root) {
@@ -77,6 +80,9 @@ void test_read_file_supports_offset_limit_and_truncation(const std::filesystem::
     assert(result.output.find("line1") == std::string::npos);
     assert(result.output.find("line4") == std::string::npos);
     assert(result.output.find("[truncated: showing lines 2-3 of 4]") != std::string::npos);
+    assert(result.metadata.at("offset") == "2");
+    assert(result.metadata.at("limit") == "2");
+    assert(result.metadata.at("truncated") == "true");
 }
 
 void test_read_file_reports_byte_truncation(const std::filesystem::path& root) {

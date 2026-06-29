@@ -870,7 +870,7 @@ git commit -m "Add interruptible agent execution"
 - Modify: `tests/test_write_edit_tools.cpp`
 - Modify: `tests/test_tui_app.cpp`
 
-- [ ] **Step 1: Write failing shell structured metadata test**
+- [x] **Step 1: Write failing shell structured metadata test**
 
 Add to `tests/test_shell_tool.cpp`:
 
@@ -893,7 +893,7 @@ void test_shell_tool_returns_structured_metadata() {
 }
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run:
 
@@ -904,7 +904,7 @@ cmake --build build --config Debug --target agent_tui_shell_tool_tests
 
 Expected: compile failure if `ToolResult::metadata` does not exist or assertion failure if fields are missing.
 
-- [ ] **Step 3: Extend `ToolResult`**
+- [x] **Step 3: Extend `ToolResult`**
 
 In `Tool.hpp`, add:
 
@@ -932,7 +932,7 @@ static ToolResult failure(std::string error, JsonLike metadata = {}) {
 }
 ```
 
-- [ ] **Step 4: Populate metadata in `ShellTool`**
+- [x] **Step 4: Populate metadata in `ShellTool`**
 
 For every shell result, include:
 
@@ -944,7 +944,7 @@ metadata["full_output_path"] = full_output_path;
 metadata["timed_out"] = timed_out ? "true" : "false";
 ```
 
-- [ ] **Step 5: Populate metadata in file tools**
+- [x] **Step 5: Populate metadata in file tools**
 
 For `read_file`:
 
@@ -963,7 +963,7 @@ metadata["replacements"] = std::to_string(replacement_count);
 metadata["diff"] = diff_summary;
 ```
 
-- [ ] **Step 6: Render tool result metadata in transcript**
+- [x] **Step 6: Render tool result metadata in transcript**
 
 In `TuiTranscript`, render a tool result with important metadata:
 
@@ -973,7 +973,7 @@ tool result > run_shell exit=0 stdout=hello
 
 Do not dump full metadata in the terminal. Keep full output path visible when truncation occurs.
 
-- [ ] **Step 7: Run tool and TUI tests**
+- [x] **Step 7: Run tool and TUI tests**
 
 Run:
 

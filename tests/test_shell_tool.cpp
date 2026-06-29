@@ -66,6 +66,22 @@ void test_run_shell_windows_timeout_kills_process(const std::filesystem::path& r
     assert(result.output.find("timeout: true") != std::string::npos);
 }
 
+void test_shell_tool_returns_structured_metadata(const std::filesystem::path& root) {
+    Workspace workspace(root);
+    ShellTool tool(workspace);
+    auto result = tool.run({
+        {"command", "echo hello"},
+        {"cwd", "."},
+        {"timeout_seconds", "5"},
+    });
+
+    assert(result.ok);
+    assert(result.metadata.at("exit_code") == "0");
+    assert(result.metadata.find("stdout") != result.metadata.end());
+    assert(result.metadata.find("stderr") != result.metadata.end());
+    assert(result.metadata.at("timed_out") == "false");
+}
+
 #endif
 
 #ifndef _WIN32
@@ -83,6 +99,22 @@ void test_run_shell_echo(const std::filesystem::path& root) {
     assert(result.output.find("exit_code: 0") != std::string::npos);
     assert(result.output.find("timeout: false") != std::string::npos);
     assert(result.output.find("hello") != std::string::npos);
+}
+
+void test_shell_tool_returns_structured_metadata(const std::filesystem::path& root) {
+    Workspace workspace(root);
+    ShellTool tool(workspace);
+    auto result = tool.run({
+        {"command", "printf hello"},
+        {"cwd", "."},
+        {"timeout_seconds", "5"},
+    });
+
+    assert(result.ok);
+    assert(result.metadata.at("exit_code") == "0");
+    assert(result.metadata.find("stdout") != result.metadata.end());
+    assert(result.metadata.find("stderr") != result.metadata.end());
+    assert(result.metadata.at("timed_out") == "false");
 }
 
 void test_run_shell_nonzero_exit(const std::filesystem::path& root) {
@@ -169,11 +201,13 @@ int main() {
     const auto root = make_test_root();
     test_run_shell_windows_truncates_and_persists_full_output(root);
     test_run_shell_windows_timeout_kills_process(root);
+    test_shell_tool_returns_structured_metadata(root);
     std::filesystem::remove_all(root);
     return 0;
 #else
     const auto root = make_test_root();
     test_run_shell_echo(root);
+    test_shell_tool_returns_structured_metadata(root);
     test_run_shell_nonzero_exit(root);
     test_run_shell_timeout(root);
     test_run_shell_denied_not_executed(root);

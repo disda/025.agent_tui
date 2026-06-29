@@ -197,6 +197,9 @@ void test_edit_file_replace_all(const std::filesystem::path& root) {
 
     assert(result.ok);
     assert(result.output.find("replacements: 3") != std::string::npos);
+    assert(result.metadata.at("path").find("replace_all.txt") != std::string::npos);
+    assert(result.metadata.at("replacements") == "3");
+    assert(result.metadata.find("diff") != result.metadata.end());
     assert(read_file(root / "replace_all.txt") == "y y y");
 }
 

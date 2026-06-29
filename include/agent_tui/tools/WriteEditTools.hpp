@@ -261,10 +261,16 @@ public:
         }
 
         std::ostringstream out;
+        const auto diff = write_edit_tools_detail::make_line_diff(workspace_.display_path(path), before, content);
         out << "edited file: " << workspace_.display_path(path) << '\n';
         out << "replacements: " << replacements << '\n';
-        out << write_edit_tools_detail::make_line_diff(workspace_.display_path(path), before, content);
-        return ToolResult::success(out.str());
+        out << diff;
+
+        JsonLike metadata;
+        metadata["path"] = path.generic_string();
+        metadata["replacements"] = std::to_string(replacements);
+        metadata["diff"] = diff;
+        return ToolResult::success(out.str(), metadata);
     }
 
 private:

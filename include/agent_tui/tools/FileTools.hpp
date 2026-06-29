@@ -298,8 +298,18 @@ public:
             const auto content = buffer.str();
             const auto offset = file_tools_detail::get_size_arg(arguments, "offset", 1);
             const auto limit = file_tools_detail::get_size_arg(arguments, "limit", 0);
+            auto make_metadata = [&](const std::string& output, bool line_truncated, bool byte_truncated) {
+                JsonLike metadata;
+                metadata["path"] = path.generic_string();
+                metadata["offset"] = std::to_string(offset);
+                metadata["limit"] = std::to_string(limit);
+                metadata["truncated"] = (line_truncated || byte_truncated) ? "true" : "false";
+                metadata["bytes_returned"] = std::to_string(output.size());
+                return metadata;
+            };
             if (offset <= 1 && limit == 0) {
-                return ToolResult::success(file_tools_detail::truncate(content, max_bytes));
+                auto output = file_tools_detail::truncate(content, max_bytes);
+                return ToolResult::success(output, make_metadata(output, false, content.size() > max_bytes));
             }
 
             const auto lines = file_tools_detail::split_lines(content);
@@ -320,7 +330,9 @@ public:
                 }
                 out << "[truncated: showing lines " << start_line << '-' << end_index << " of " << lines.size() << ']';
             }
-            return ToolResult::success(file_tools_detail::truncate(out.str(), max_bytes));
+            const auto unbounded = out.str();
+            auto output = file_tools_detail::truncate(unbounded, max_bytes);
+            return ToolResult::success(output, make_metadata(output, start_index > 0 || end_index < lines.size(), unbounded.size() > max_bytes));
         } catch (const std::exception& error) {
             return ToolResult::failure(error.what());
         }

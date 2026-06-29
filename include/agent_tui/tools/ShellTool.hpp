@@ -88,6 +88,22 @@ inline std::string format_result(int exit_code,
     return out.str();
 }
 
+inline JsonLike result_metadata(int exit_code,
+                                bool timeout,
+                                const std::string& stdout_text,
+                                const std::string& stderr_text,
+                                const std::string& full_output_path = {}) {
+    JsonLike metadata;
+    metadata["exit_code"] = std::to_string(exit_code);
+    metadata["timed_out"] = timeout ? "true" : "false";
+    metadata["stdout"] = stdout_text;
+    metadata["stderr"] = stderr_text;
+    if (!full_output_path.empty()) {
+        metadata["full_output_path"] = full_output_path;
+    }
+    return metadata;
+}
+
 inline std::string read_text_file(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
     std::ostringstream buffer;
@@ -276,11 +292,9 @@ private:
         const auto full_output = shell_tool_detail::read_text_file(output_path);
         const auto preview = shell_tool_detail::preview_output(full_output, max_output_bytes);
         const auto full_output_path = full_output.size() > max_output_bytes ? output_path.generic_string() : std::string{};
-        return ToolResult::success(shell_tool_detail::format_result(static_cast<int>(raw_exit_code),
-                                                                    timeout,
-                                                                    preview,
-                                                                    {},
-                                                                    full_output_path));
+        const auto exit_code = static_cast<int>(raw_exit_code);
+        return ToolResult::success(shell_tool_detail::format_result(exit_code, timeout, preview, {}, full_output_path),
+                                   shell_tool_detail::result_metadata(exit_code, timeout, preview, {}, full_output_path));
     }
 #else
     ToolResult run_posix(const std::string& command,
@@ -392,7 +406,8 @@ private:
             full_output_path = output_path.generic_string();
         }
 
-        return ToolResult::success(shell_tool_detail::format_result(exit_code, timeout, stdout_text, stderr_text, full_output_path));
+        return ToolResult::success(shell_tool_detail::format_result(exit_code, timeout, stdout_text, stderr_text, full_output_path),
+                                   shell_tool_detail::result_metadata(exit_code, timeout, stdout_text, stderr_text, full_output_path));
     }
 #endif
 

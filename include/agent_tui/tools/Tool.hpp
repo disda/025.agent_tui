@@ -16,18 +16,21 @@ struct ToolResult {
     bool ok = true;
     std::string output;
     std::string error;
+    JsonLike metadata;
 
-    static ToolResult success(std::string text) {
+    static ToolResult success(std::string text, JsonLike metadata = {}) {
         ToolResult result;
         result.ok = true;
         result.output = std::move(text);
+        result.metadata = std::move(metadata);
         return result;
     }
 
-    static ToolResult failure(std::string message) {
+    static ToolResult failure(std::string message, JsonLike metadata = {}) {
         ToolResult result;
         result.ok = false;
         result.error = std::move(message);
+        result.metadata = std::move(metadata);
         return result;
     }
 };
