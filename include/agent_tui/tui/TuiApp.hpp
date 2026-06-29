@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <csignal>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iostream>
@@ -44,6 +45,8 @@ enum class TuiCellKind {
     System,
     User,
     Assistant,
+    AssistantStreaming,
+    AssistantDone,
     Agent,
     ToolCall,
     ToolResult,
@@ -235,6 +238,49 @@ public:
                workspace.root().generic_string();
     }
 
+    static std::vector<std::string> wrap_text_for_terminal(const std::string& text, std::size_t width) {
+        if (text.empty()) {
+            return {};
+        }
+        if (width == 0) {
+            return {text};
+        }
+
+        std::vector<std::string> lines;
+        std::string current;
+        std::size_t current_width = 0;
+
+        for (std::size_t i = 0; i < text.size();) {
+            const auto glyph = next_utf8_glyph(text, i);
+            i += glyph.bytes;
+
+            if (glyph.codepoint == '\r') {
+                continue;
+            }
+            if (glyph.codepoint == '\n') {
+                lines.push_back(current);
+                current.clear();
+                current_width = 0;
+                continue;
+            }
+
+            const auto glyph_width = terminal_glyph_width(glyph.codepoint);
+            if (!current.empty() && current_width + glyph_width > width) {
+                lines.push_back(current);
+                current.clear();
+                current_width = 0;
+            }
+
+            current.append(text, glyph.offset, glyph.bytes);
+            current_width += glyph_width;
+        }
+
+        if (!current.empty() || lines.empty()) {
+            lines.push_back(current);
+        }
+        return lines;
+    }
+
 private:
     static void signal_handler(int) {
         global_interrupted_ = true;
@@ -342,11 +388,12 @@ private:
 
             if (result.ok() && !streamed_assistant) {
                 status_ = TuiRuntimeStatus::Done;
-                add_chat_line("assistant", result.output);
+                add_cell(TuiCellKind::AssistantDone, {}, result.output);
                 return;
             }
             if (result.ok()) {
                 status_ = TuiRuntimeStatus::Done;
+                finish_streaming_assistant_cell();
                 return;
             }
             status_ = TuiRuntimeStatus::Error;
@@ -612,10 +659,17 @@ private:
 
     void append_assistant_delta(const std::string& delta) {
         if (streaming_assistant_index_ >= transcript_cells_.size()) {
-            add_cell(TuiCellKind::Assistant, {}, {});
+            add_cell(TuiCellKind::AssistantStreaming, {}, {});
             streaming_assistant_index_ = transcript_cells_.size() - 1;
         }
         transcript_cells_[streaming_assistant_index_].body += delta;
+    }
+
+    void finish_streaming_assistant_cell() {
+        if (streaming_assistant_index_ < transcript_cells_.size()) {
+            transcript_cells_[streaming_assistant_index_].kind = TuiCellKind::AssistantDone;
+        }
+        streaming_assistant_index_ = npos();
     }
 
     static constexpr std::size_t npos() {
@@ -667,7 +721,7 @@ private:
         const auto label = cell_label(cell.kind);
         const auto message = cell_text(cell);
         *output_ << "  " << ansi(cell_color(cell.kind)) << label << ansi("0") << " > ";
-        const auto wrapped = wrap_text(message, 84);
+        const auto wrapped = wrap_text_for_terminal(message, 84);
         if (wrapped.empty()) {
             *output_ << "\n";
             return;
@@ -683,7 +737,7 @@ private:
             return TuiCellKind::User;
         }
         if (role == "assistant") {
-            return TuiCellKind::Assistant;
+            return TuiCellKind::AssistantDone;
         }
         if (role == "agent") {
             return TuiCellKind::Agent;
@@ -715,6 +769,10 @@ private:
                 return "user";
             case TuiCellKind::Assistant:
                 return "assistant";
+            case TuiCellKind::AssistantStreaming:
+                return "assistant streaming";
+            case TuiCellKind::AssistantDone:
+                return "assistant done";
             case TuiCellKind::Agent:
                 return "agent";
             case TuiCellKind::ToolCall:
@@ -738,6 +796,8 @@ private:
             case TuiCellKind::User:
                 return "38;5;81";
             case TuiCellKind::Assistant:
+            case TuiCellKind::AssistantStreaming:
+            case TuiCellKind::AssistantDone:
                 return "38;5;114";
             case TuiCellKind::Agent:
                 return "38;5;147";
@@ -767,27 +827,69 @@ private:
         return cell.title + " " + cell.body;
     }
 
-    static std::vector<std::string> wrap_text(const std::string& text, std::size_t width) {
-        std::vector<std::string> lines;
-        std::istringstream words(text);
-        std::string word;
-        std::string current;
-        while (words >> word) {
-            if (current.empty()) {
-                current = word;
-                continue;
-            }
-            if (current.size() + 1 + word.size() > width) {
-                lines.push_back(current);
-                current = word;
-                continue;
-            }
-            current += " " + word;
+    struct Utf8Glyph {
+        std::size_t offset = 0;
+        std::size_t bytes = 1;
+        std::uint32_t codepoint = 0;
+    };
+
+    static Utf8Glyph next_utf8_glyph(const std::string& text, std::size_t offset) {
+        const auto first = static_cast<unsigned char>(text[offset]);
+        if ((first & 0x80U) == 0) {
+            return Utf8Glyph{offset, 1, first};
         }
-        if (!current.empty()) {
-            lines.push_back(current);
+
+        auto continuation = [&](std::size_t index) {
+            return index < text.size() && (static_cast<unsigned char>(text[index]) & 0xC0U) == 0x80U;
+        };
+
+        if ((first & 0xE0U) == 0xC0U && continuation(offset + 1)) {
+            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
+            const auto cp = ((first & 0x1FU) << 6U) | (b1 & 0x3FU);
+            return Utf8Glyph{offset, 2, cp};
         }
-        return lines;
+        if ((first & 0xF0U) == 0xE0U && continuation(offset + 1) && continuation(offset + 2)) {
+            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
+            const auto b2 = static_cast<unsigned char>(text[offset + 2]);
+            const auto cp = ((first & 0x0FU) << 12U) | ((b1 & 0x3FU) << 6U) | (b2 & 0x3FU);
+            return Utf8Glyph{offset, 3, cp};
+        }
+        if ((first & 0xF8U) == 0xF0U && continuation(offset + 1) && continuation(offset + 2) && continuation(offset + 3)) {
+            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
+            const auto b2 = static_cast<unsigned char>(text[offset + 2]);
+            const auto b3 = static_cast<unsigned char>(text[offset + 3]);
+            const auto cp = ((first & 0x07U) << 18U) | ((b1 & 0x3FU) << 12U) | ((b2 & 0x3FU) << 6U) | (b3 & 0x3FU);
+            return Utf8Glyph{offset, 4, cp};
+        }
+        return Utf8Glyph{offset, 1, first};
+    }
+
+    static std::size_t terminal_glyph_width(std::uint32_t cp) {
+        if (cp == '\t') {
+            return 4;
+        }
+        if (cp == 0 || cp < 32 || (cp >= 0x7FU && cp < 0xA0U)) {
+            return 0;
+        }
+        if ((cp >= 0x0300U && cp <= 0x036FU) ||
+            (cp >= 0x1AB0U && cp <= 0x1AFFU) ||
+            (cp >= 0x1DC0U && cp <= 0x1DFFU) ||
+            (cp >= 0x20D0U && cp <= 0x20FFU) ||
+            (cp >= 0xFE20U && cp <= 0xFE2FU)) {
+            return 0;
+        }
+        if ((cp >= 0x1100U && cp <= 0x115FU) ||
+            (cp >= 0x2329U && cp <= 0x232AU) ||
+            (cp >= 0x2E80U && cp <= 0xA4CFU) ||
+            (cp >= 0xAC00U && cp <= 0xD7A3U) ||
+            (cp >= 0xF900U && cp <= 0xFAFFU) ||
+            (cp >= 0xFE10U && cp <= 0xFE19U) ||
+            (cp >= 0xFE30U && cp <= 0xFE6FU) ||
+            (cp >= 0xFF00U && cp <= 0xFF60U) ||
+            (cp >= 0xFFE0U && cp <= 0xFFE6U)) {
+            return 2;
+        }
+        return 1;
     }
 
     static std::string trim_copy(std::string value) {

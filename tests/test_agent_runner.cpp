@@ -66,11 +66,15 @@ public:
     }
 
     ProviderResponse chat_stream(const std::vector<Message>&,
-                                 const std::string&,
-                                 const std::function<void(const std::string&)>& on_delta) override {
+                                 const std::string& tools_schema_json,
+                                 const std::function<void(const std::string&)>&) override {
         stream_called = true;
-        on_delta("I will inspect first");
-        return ProviderResponse::text_response("I will inspect first");
+        observed_tools_schema_json = tools_schema_json;
+        ToolCall echo_call;
+        echo_call.id = "call_echo";
+        echo_call.name = "echo";
+        echo_call.arguments = {{"text", "tool path"}};
+        return ProviderResponse::tool_calls_response({echo_call});
     }
 
     bool chat_called = false;
@@ -217,7 +221,7 @@ void test_agent_runner_uses_provider_streaming_deltas_for_text() {
     assert(!provider.chat_called);
 }
 
-void test_agent_runner_uses_non_streaming_chat_when_tools_are_available() {
+void test_agent_runner_uses_streaming_chat_when_tools_are_available() {
     ToolAwareProvider provider;
     ToolRegistry registry;
     registry.register_tool(std::make_unique<EchoTool>());
@@ -226,8 +230,8 @@ void test_agent_runner_uses_non_streaming_chat_when_tools_are_available() {
     auto result = runner.run({Message{Role::User, "inspect with tools", {}}});
 
     assert(!result.ok());
-    assert(provider.chat_called);
-    assert(!provider.stream_called);
+    assert(!provider.chat_called);
+    assert(provider.stream_called);
     assert(provider.observed_tools_schema_json.find("\"echo\"") != std::string::npos);
     assert(runner.last_messages()[2].content == "tool path");
 }
@@ -294,7 +298,7 @@ int main() {
     test_default_max_loop_allows_twenty_five_provider_iterations();
     test_tool_schema_can_be_limited_by_active_allow_deny_lists();
     test_agent_runner_uses_provider_streaming_deltas_for_text();
-    test_agent_runner_uses_non_streaming_chat_when_tools_are_available();
+    test_agent_runner_uses_streaming_chat_when_tools_are_available();
     test_agent_runner_uses_tool_exposure_policy_for_provider_schema();
     test_agent_runner_blocks_tool_call_denied_by_exposure_policy();
     return 0;

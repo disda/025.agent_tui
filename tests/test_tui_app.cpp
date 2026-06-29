@@ -137,7 +137,8 @@ void test_run_accepts_scripted_input_and_uses_mock_provider() {
     assert(app.config().provider == "mock");
     assert(output.str().find("Agent TUI") != std::string::npos);
     assert(output.str().find("Provider") != std::string::npos);
-    assert(output.str().find("mock assistant: hello provider") != std::string::npos);
+    assert(output.str().find("assistant streaming > mock assistant: hello provider") != std::string::npos);
+    assert(output.str().find("assistant done > mock assistant: hello provider") != std::string::npos);
     std::filesystem::remove_all(root);
 }
 
@@ -164,6 +165,26 @@ void test_windows_code_page_input_can_be_normalized_to_utf8() {
     const auto utf8_hello = tui_detail::decode_code_page(gbk_hello, 936);
     assert(utf8_hello == "\xE4\xBD\xA0\xE5\xA5\xBD");
 #endif
+}
+
+void test_terminal_wraps_long_unspaced_text() {
+    const auto ascii_lines = TuiApp::wrap_text_for_terminal("abcdefghijklmnopqrstuvwxyz", 8);
+    assert(ascii_lines.size() == 4);
+    assert(ascii_lines[0] == "abcdefgh");
+    assert(ascii_lines[1] == "ijklmnop");
+    assert(ascii_lines[2] == "qrstuvwx");
+    assert(ascii_lines[3] == "yz");
+
+    const auto chinese = bytes({
+        0xE4,0xBD,0xA0, 0xE5,0xA5,0xBD,
+        0xE4,0xBD,0xA0, 0xE5,0xA5,0xBD,
+        0xE4,0xBD,0xA0, 0xE5,0xA5,0xBD
+    });
+    const auto chinese_lines = TuiApp::wrap_text_for_terminal(chinese, 4);
+    assert(chinese_lines.size() == 3);
+    assert(chinese_lines[0] == chinese.substr(0, 6));
+    assert(chinese_lines[1] == chinese.substr(6, 6));
+    assert(chinese_lines[2] == chinese.substr(12, 6));
 }
 
 void test_system_prompt_includes_workspace_path() {
@@ -202,6 +223,7 @@ void test_tui_runs_agent_tool_loop_for_code_demo() {
     assert(output.str().find("tool result > write_file") != std::string::npos);
     assert(output.str().find("tool_call >") == std::string::npos);
     assert(output.str().find("tool_result >") == std::string::npos);
+    assert(output.str().find("assistant done > demo.py is ready") != std::string::npos);
     assert(output.str().find("demo.py is ready") != std::string::npos);
     std::filesystem::remove_all(root);
 }
@@ -234,6 +256,7 @@ int main() {
     test_run_accepts_scripted_input_and_uses_mock_provider();
     test_render_uses_transcript_cell_layout();
     test_windows_code_page_input_can_be_normalized_to_utf8();
+    test_terminal_wraps_long_unspaced_text();
     test_system_prompt_includes_workspace_path();
     test_tui_runs_agent_tool_loop_for_code_demo();
     test_directory_question_is_not_handled_by_local_intent_router();

@@ -43,17 +43,14 @@ public:
 
         for (int step = 0; step < max_loops_; ++step) {
             const auto tools_schema_json = tools_.tools_schema_json(tool_exposure_policy_);
-            const bool tools_available = tools_schema_json != "[]";
-            auto response = tools_available
-                                ? provider_.chat(messages, tools_schema_json)
-                                : provider_.chat_stream(
-                                      messages,
-                                      tools_schema_json,
-                                      [&](const std::string& delta) {
-                                          if (observer_.on_assistant_delta) {
-                                              observer_.on_assistant_delta(delta);
-                                          }
-                                      });
+            auto response = provider_.chat_stream(
+                messages,
+                tools_schema_json,
+                [&](const std::string& delta) {
+                    if (observer_.on_assistant_delta) {
+                        observer_.on_assistant_delta(delta);
+                    }
+                });
 
             if (response.type == ProviderResponseType::Text) {
                 messages.push_back(Message{Role::Assistant, response.text, {}});
