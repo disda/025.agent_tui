@@ -66,7 +66,7 @@
 - Modify: `include/agent_tui/tui/TuiApp.hpp`
 - Modify: `tests/test_tui_app.cpp`
 
-- [ ] **Step 1: Write the failing transcript unit-style test in `tests/test_tui_app.cpp`**
+- [x] **Step 1: Write the failing transcript unit-style test in `tests/test_tui_app.cpp`**
 
 Add a test near the current wrapping tests:
 
@@ -101,7 +101,7 @@ std::string join_lines(const std::vector<std::string>& lines) {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run:
 
@@ -112,7 +112,7 @@ cmake --build build --config Debug --target agent_tui_app_tests
 
 Expected: compile failure because `TuiTranscript` does not exist.
 
-- [ ] **Step 3: Implement `TuiTranscript` with the minimal public API**
+- [x] **Step 3: Implement `TuiTranscript` with the minimal public API**
 
 Create `include/agent_tui/tui/TuiTranscript.hpp`:
 
@@ -235,7 +235,7 @@ private:
 
 Move the already implemented UTF-8-safe wrapping logic from `TuiApp` into `TuiTranscript::wrap_text_for_terminal`.
 
-- [ ] **Step 4: Update `TuiApp` to delegate transcript state**
+- [x] **Step 4: Update `TuiApp` to delegate transcript state**
 
 In `include/agent_tui/tui/TuiApp.hpp`:
 
@@ -283,7 +283,7 @@ if (transcript_.empty()) {
 }
 ```
 
-- [ ] **Step 5: Run TUI tests**
+- [x] **Step 5: Run TUI tests**
 
 Run:
 

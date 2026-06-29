@@ -1,4 +1,5 @@
 #include "agent_tui/tui/TuiApp.hpp"
+#include "agent_tui/tui/TuiTranscript.hpp"
 
 #include <cassert>
 #include <chrono>
@@ -43,6 +44,14 @@ std::string zh_current_directory_question() {
         0xE4,0xBB,0x80,0xE4,0xB9,0x88,
         0xE7,0x9B,0xAE,0xE5,0xBD,0x95
     });
+}
+
+std::string join_lines(const std::vector<std::string>& lines) {
+    std::ostringstream out;
+    for (const auto& line : lines) {
+        out << line << '\n';
+    }
+    return out.str();
 }
 
 }  // namespace
@@ -187,6 +196,23 @@ void test_terminal_wraps_long_unspaced_text() {
     assert(chinese_lines[2] == chinese.substr(12, 6));
 }
 
+void test_transcript_tracks_streaming_and_done_cells() {
+    TuiTranscript transcript;
+
+    transcript.add_user("explain main.cpp");
+    transcript.start_assistant_stream();
+    transcript.append_assistant_delta("hello");
+    transcript.append_assistant_delta(" world");
+
+    auto before_done = transcript.render_lines(120);
+    assert(join_lines(before_done).find("assistant streaming > hello world") != std::string::npos);
+
+    transcript.finish_assistant_stream();
+    auto after_done = transcript.render_lines(120);
+    assert(join_lines(after_done).find("assistant done > hello world") != std::string::npos);
+    assert(join_lines(after_done).find("assistant streaming >") == std::string::npos);
+}
+
 void test_system_prompt_includes_workspace_path() {
     const auto root = make_test_root();
     Workspace workspace(root);
@@ -257,6 +283,7 @@ int main() {
     test_render_uses_transcript_cell_layout();
     test_windows_code_page_input_can_be_normalized_to_utf8();
     test_terminal_wraps_long_unspaced_text();
+    test_transcript_tracks_streaming_and_done_cells();
     test_system_prompt_includes_workspace_path();
     test_tui_runs_agent_tool_loop_for_code_demo();
     test_directory_question_is_not_handled_by_local_intent_router();

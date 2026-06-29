@@ -27,6 +27,7 @@
 #include "agent_tui/tools/ToolRegistry.hpp"
 #include "agent_tui/tools/WriteEditTools.hpp"
 #include "agent_tui/tui/TuiConfig.hpp"
+#include "agent_tui/tui/TuiTranscript.hpp"
 #include "agent_tui/workspace/Workspace.hpp"
 
 namespace agent_tui {
@@ -39,27 +40,6 @@ enum class TuiRuntimeStatus {
     Done,
     Error,
     Interrupted,
-};
-
-enum class TuiCellKind {
-    System,
-    User,
-    Assistant,
-    AssistantStreaming,
-    AssistantDone,
-    Agent,
-    ToolCall,
-    ToolResult,
-    ApprovalRequired,
-    ApprovalDenied,
-    ApprovalFeedback,
-    Error,
-};
-
-struct TuiCell {
-    TuiCellKind kind = TuiCellKind::System;
-    std::string title;
-    std::string body;
 };
 
 namespace tui_detail {
@@ -168,7 +148,7 @@ public:
             return true;
         }
         if (command == "/clear") {
-            transcript_cells_.clear();
+            transcript_.clear();
             history_.clear();
             interrupted_ = false;
             add_system_message("session cleared");
@@ -239,46 +219,7 @@ public:
     }
 
     static std::vector<std::string> wrap_text_for_terminal(const std::string& text, std::size_t width) {
-        if (text.empty()) {
-            return {};
-        }
-        if (width == 0) {
-            return {text};
-        }
-
-        std::vector<std::string> lines;
-        std::string current;
-        std::size_t current_width = 0;
-
-        for (std::size_t i = 0; i < text.size();) {
-            const auto glyph = next_utf8_glyph(text, i);
-            i += glyph.bytes;
-
-            if (glyph.codepoint == '\r') {
-                continue;
-            }
-            if (glyph.codepoint == '\n') {
-                lines.push_back(current);
-                current.clear();
-                current_width = 0;
-                continue;
-            }
-
-            const auto glyph_width = terminal_glyph_width(glyph.codepoint);
-            if (!current.empty() && current_width + glyph_width > width) {
-                lines.push_back(current);
-                current.clear();
-                current_width = 0;
-            }
-
-            current.append(text, glyph.offset, glyph.bytes);
-            current_width += glyph_width;
-        }
-
-        if (!current.empty() || lines.empty()) {
-            lines.push_back(current);
-        }
-        return lines;
+        return TuiTranscript::wrap_text_for_terminal(text, width);
     }
 
 private:
@@ -362,7 +303,7 @@ private:
             };
             AgentRunner runner(*provider, registry, approval, history_, config_.max_loops);
             bool streamed_assistant = false;
-            streaming_assistant_index_ = npos();
+            transcript_.finish_assistant_stream();
             status_ = TuiRuntimeStatus::Thinking;
             add_chat_line("agent", "thinking with " + config_.provider + " (" + std::to_string(config_.max_loops) + " max steps)");
             render();
@@ -388,7 +329,7 @@ private:
 
             if (result.ok() && !streamed_assistant) {
                 status_ = TuiRuntimeStatus::Done;
-                add_cell(TuiCellKind::AssistantDone, {}, result.output);
+                transcript_.add_assistant_done(result.output);
                 return;
             }
             if (result.ok()) {
@@ -427,12 +368,11 @@ private:
         *output_ << ansi("38;5;245") << "API" << ansi("0") << "       " << (config_.api_base.empty() ? "<not set>" : config_.api_base)
                  << "    " << ansi("38;5;245") << "Key" << ansi("0") << "  " << config_.api_key_status() << "\n\n";
         *output_ << ansi("1;38;5;252") << "Transcript" << ansi("0") << "\n";
-        if (transcript_cells_.empty()) {
+        if (transcript_.empty()) {
             *output_ << "  " << ansi("38;5;245") << "No messages yet. Type a prompt or /help." << ansi("0") << "\n";
         } else {
-            const std::size_t start = transcript_cells_.size() > 12 ? transcript_cells_.size() - 12 : 0;
-            for (std::size_t i = start; i < transcript_cells_.size(); ++i) {
-                render_chat_line(transcript_cells_[i]);
+            for (const auto& line : transcript_.render_lines(94, 12)) {
+                *output_ << line << "\n";
             }
         }
         *output_ << "\n" << ansi("38;5;245") << "Commands" << ansi("0")
@@ -618,38 +558,54 @@ private:
     }
 
     void add_system_message(const std::string& message) {
-        add_cell(TuiCellKind::System, {}, message);
+        transcript_.add_system(message);
         history_.add(SessionEvent::assistant_message(message));
     }
 
     void add_error_message(const std::string& message) {
-        add_cell(TuiCellKind::Error, {}, message);
+        transcript_.add_error(message);
         history_.add(SessionEvent::error(message));
     }
 
     void add_chat_line(const std::string& role, const std::string& message) {
-        add_cell(cell_kind_for_role(role), {}, message);
+        if (role == "user") {
+            transcript_.add_user(message);
+            return;
+        }
+        if (role == "assistant") {
+            transcript_.add_assistant_done(message);
+            return;
+        }
+        if (role == "agent") {
+            transcript_.add_agent(message);
+            return;
+        }
+        if (role == "error") {
+            transcript_.add_error(message);
+            return;
+        }
+        transcript_.add_system(message);
     }
 
     void add_flow_line(const SessionEvent& event) {
         switch (event.type) {
             case SessionEventType::ToolCall:
-                add_cell(TuiCellKind::ToolCall, event.tool_name, summarize_arguments(event.arguments));
+                transcript_.add_tool_call(event.tool_name, summarize_arguments(event.arguments));
                 break;
             case SessionEventType::PermissionRequested:
-                add_cell(TuiCellKind::ApprovalRequired, event.tool_name, summarize_arguments(event.arguments));
+                transcript_.add_approval_required(event.tool_name, summarize_arguments(event.arguments));
                 break;
             case SessionEventType::PermissionDenied:
-                add_cell(TuiCellKind::ApprovalDenied, event.tool_name, truncate_text(event.content, 120));
+                transcript_.add_approval_denied(event.tool_name, truncate_text(event.content, 120));
                 break;
             case SessionEventType::UserFeedback:
-                add_cell(TuiCellKind::ApprovalFeedback, event.tool_name, truncate_text(event.content, 120));
+                transcript_.add_approval_feedback(event.tool_name, truncate_text(event.content, 120));
                 break;
             case SessionEventType::ToolResult:
-                add_cell(TuiCellKind::ToolResult, event.tool_name, summarize_tool_result(event.content));
+                transcript_.add_tool_result(event.tool_name, summarize_tool_result(event.content));
                 break;
             case SessionEventType::Error:
-                add_cell(TuiCellKind::Error, {}, event.content);
+                transcript_.add_error(event.content);
                 break;
             case SessionEventType::UserInput:
             case SessionEventType::AssistantMessage:
@@ -658,18 +614,11 @@ private:
     }
 
     void append_assistant_delta(const std::string& delta) {
-        if (streaming_assistant_index_ >= transcript_cells_.size()) {
-            add_cell(TuiCellKind::AssistantStreaming, {}, {});
-            streaming_assistant_index_ = transcript_cells_.size() - 1;
-        }
-        transcript_cells_[streaming_assistant_index_].body += delta;
+        transcript_.append_assistant_delta(delta);
     }
 
     void finish_streaming_assistant_cell() {
-        if (streaming_assistant_index_ < transcript_cells_.size()) {
-            transcript_cells_[streaming_assistant_index_].kind = TuiCellKind::AssistantDone;
-        }
-        streaming_assistant_index_ = npos();
+        transcript_.finish_assistant_stream();
     }
 
     static constexpr std::size_t npos() {
@@ -717,181 +666,6 @@ private:
         return color_enabled_ ? "\x1b[" + std::string(code) + "m" : "";
     }
 
-    void render_chat_line(const TuiCell& cell) {
-        const auto label = cell_label(cell.kind);
-        const auto message = cell_text(cell);
-        *output_ << "  " << ansi(cell_color(cell.kind)) << label << ansi("0") << " > ";
-        const auto wrapped = wrap_text_for_terminal(message, 84);
-        if (wrapped.empty()) {
-            *output_ << "\n";
-            return;
-        }
-        *output_ << wrapped.front() << "\n";
-        for (std::size_t i = 1; i < wrapped.size(); ++i) {
-            *output_ << "       " << wrapped[i] << "\n";
-        }
-    }
-
-    static TuiCellKind cell_kind_for_role(const std::string& role) {
-        if (role == "user") {
-            return TuiCellKind::User;
-        }
-        if (role == "assistant") {
-            return TuiCellKind::AssistantDone;
-        }
-        if (role == "agent") {
-            return TuiCellKind::Agent;
-        }
-        if (role == "error") {
-            return TuiCellKind::Error;
-        }
-        if (role == "tool_call") {
-            return TuiCellKind::ToolCall;
-        }
-        if (role == "tool_result") {
-            return TuiCellKind::ToolResult;
-        }
-        if (role == "approval") {
-            return TuiCellKind::ApprovalRequired;
-        }
-        return TuiCellKind::System;
-    }
-
-    void add_cell(TuiCellKind kind, std::string title, std::string body) {
-        transcript_cells_.push_back(TuiCell{kind, std::move(title), std::move(body)});
-    }
-
-    static const char* cell_label(TuiCellKind kind) {
-        switch (kind) {
-            case TuiCellKind::System:
-                return "system";
-            case TuiCellKind::User:
-                return "user";
-            case TuiCellKind::Assistant:
-                return "assistant";
-            case TuiCellKind::AssistantStreaming:
-                return "assistant streaming";
-            case TuiCellKind::AssistantDone:
-                return "assistant done";
-            case TuiCellKind::Agent:
-                return "agent";
-            case TuiCellKind::ToolCall:
-                return "tool call";
-            case TuiCellKind::ToolResult:
-                return "tool result";
-            case TuiCellKind::ApprovalRequired:
-                return "approval required";
-            case TuiCellKind::ApprovalDenied:
-                return "approval denied";
-            case TuiCellKind::ApprovalFeedback:
-                return "approval feedback";
-            case TuiCellKind::Error:
-                return "error";
-        }
-        return "log";
-    }
-
-    static const char* cell_color(TuiCellKind kind) {
-        switch (kind) {
-            case TuiCellKind::User:
-                return "38;5;81";
-            case TuiCellKind::Assistant:
-            case TuiCellKind::AssistantStreaming:
-            case TuiCellKind::AssistantDone:
-                return "38;5;114";
-            case TuiCellKind::Agent:
-                return "38;5;147";
-            case TuiCellKind::ToolCall:
-                return "38;5;220";
-            case TuiCellKind::ToolResult:
-                return "38;5;150";
-            case TuiCellKind::ApprovalRequired:
-            case TuiCellKind::ApprovalDenied:
-            case TuiCellKind::ApprovalFeedback:
-                return "38;5;214";
-            case TuiCellKind::Error:
-                return "38;5;203";
-            case TuiCellKind::System:
-                return "38;5;245";
-        }
-        return "38;5;245";
-    }
-
-    static std::string cell_text(const TuiCell& cell) {
-        if (cell.title.empty()) {
-            return cell.body;
-        }
-        if (cell.body.empty()) {
-            return cell.title;
-        }
-        return cell.title + " " + cell.body;
-    }
-
-    struct Utf8Glyph {
-        std::size_t offset = 0;
-        std::size_t bytes = 1;
-        std::uint32_t codepoint = 0;
-    };
-
-    static Utf8Glyph next_utf8_glyph(const std::string& text, std::size_t offset) {
-        const auto first = static_cast<unsigned char>(text[offset]);
-        if ((first & 0x80U) == 0) {
-            return Utf8Glyph{offset, 1, first};
-        }
-
-        auto continuation = [&](std::size_t index) {
-            return index < text.size() && (static_cast<unsigned char>(text[index]) & 0xC0U) == 0x80U;
-        };
-
-        if ((first & 0xE0U) == 0xC0U && continuation(offset + 1)) {
-            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
-            const auto cp = ((first & 0x1FU) << 6U) | (b1 & 0x3FU);
-            return Utf8Glyph{offset, 2, cp};
-        }
-        if ((first & 0xF0U) == 0xE0U && continuation(offset + 1) && continuation(offset + 2)) {
-            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
-            const auto b2 = static_cast<unsigned char>(text[offset + 2]);
-            const auto cp = ((first & 0x0FU) << 12U) | ((b1 & 0x3FU) << 6U) | (b2 & 0x3FU);
-            return Utf8Glyph{offset, 3, cp};
-        }
-        if ((first & 0xF8U) == 0xF0U && continuation(offset + 1) && continuation(offset + 2) && continuation(offset + 3)) {
-            const auto b1 = static_cast<unsigned char>(text[offset + 1]);
-            const auto b2 = static_cast<unsigned char>(text[offset + 2]);
-            const auto b3 = static_cast<unsigned char>(text[offset + 3]);
-            const auto cp = ((first & 0x07U) << 18U) | ((b1 & 0x3FU) << 12U) | ((b2 & 0x3FU) << 6U) | (b3 & 0x3FU);
-            return Utf8Glyph{offset, 4, cp};
-        }
-        return Utf8Glyph{offset, 1, first};
-    }
-
-    static std::size_t terminal_glyph_width(std::uint32_t cp) {
-        if (cp == '\t') {
-            return 4;
-        }
-        if (cp == 0 || cp < 32 || (cp >= 0x7FU && cp < 0xA0U)) {
-            return 0;
-        }
-        if ((cp >= 0x0300U && cp <= 0x036FU) ||
-            (cp >= 0x1AB0U && cp <= 0x1AFFU) ||
-            (cp >= 0x1DC0U && cp <= 0x1DFFU) ||
-            (cp >= 0x20D0U && cp <= 0x20FFU) ||
-            (cp >= 0xFE20U && cp <= 0xFE2FU)) {
-            return 0;
-        }
-        if ((cp >= 0x1100U && cp <= 0x115FU) ||
-            (cp >= 0x2329U && cp <= 0x232AU) ||
-            (cp >= 0x2E80U && cp <= 0xA4CFU) ||
-            (cp >= 0xAC00U && cp <= 0xD7A3U) ||
-            (cp >= 0xF900U && cp <= 0xFAFFU) ||
-            (cp >= 0xFE10U && cp <= 0xFE19U) ||
-            (cp >= 0xFE30U && cp <= 0xFE6FU) ||
-            (cp >= 0xFF00U && cp <= 0xFF60U) ||
-            (cp >= 0xFFE0U && cp <= 0xFFE6U)) {
-            return 2;
-        }
-        return 1;
-    }
-
     static std::string trim_copy(std::string value) {
         auto is_space = [](unsigned char ch) { return std::isspace(ch) != 0; };
         value.erase(value.begin(), std::find_if(value.begin(), value.end(), [&](char ch) { return !is_space(static_cast<unsigned char>(ch)); }));
@@ -911,8 +685,7 @@ private:
     std::ostream* output_ = &std::cout;
     TuiConfig config_;
     SessionHistory history_;
-    std::vector<TuiCell> transcript_cells_;
-    std::size_t streaming_assistant_index_ = npos();
+    TuiTranscript transcript_;
     TuiRuntimeStatus status_ = TuiRuntimeStatus::Idle;
     bool running_ = true;
     bool interrupted_ = false;
