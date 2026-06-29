@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -413,55 +414,17 @@ public:
             return ProviderResponse::error_response("failed to start curl for streaming response");
         }
 
-        std::string accumulated;
         std::string raw;
-        ToolCall streamed_tool_call;
-        bool saw_streamed_tool_call = false;
+        StreamAccumulator stream;
         char buffer[4096];
         while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
             std::string line(buffer);
             raw += line;
-            if (line.rfind("data:", 0) != 0) {
+            auto chunk = normalize_stream_chunk(line);
+            if (chunk.empty()) {
                 continue;
             }
-            line = line.substr(5);
-            while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
-                line.erase(line.begin());
-            }
-            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
-                line.pop_back();
-            }
-            if (line == "[DONE]") {
-                continue;
-            }
-            const auto delta = openai_compatible_detail::extract_json_string_field(line, "content");
-            if (!delta.empty()) {
-                auto piece = delta;
-                if (!accumulated.empty()) {
-                    if (delta == accumulated) {
-                        piece.clear();
-                    } else if (delta.rfind(accumulated, 0) == 0) {
-                        piece = delta.substr(accumulated.size());
-                    }
-                }
-                if (!piece.empty()) {
-                    accumulated += piece;
-                    on_delta(piece);
-                }
-            }
-            if (line.find("\"tool_calls\"") != std::string::npos) {
-                saw_streamed_tool_call = true;
-                const auto id = openai_compatible_detail::extract_json_string_field(line, "id");
-                const auto name = openai_compatible_detail::extract_json_string_field(line, "name");
-                const auto arguments = openai_compatible_detail::extract_json_string_field(line, "arguments");
-                if (!id.empty()) {
-                    streamed_tool_call.id = id;
-                }
-                if (!name.empty()) {
-                    streamed_tool_call.name = name;
-                }
-                streamed_tool_call.arguments["_raw"] += arguments;
-            }
+            consume_stream_chunk(chunk, stream, on_delta);
         }
 
 #ifdef _WIN32
@@ -476,16 +439,9 @@ public:
         if (exit_code != 0) {
             return ProviderResponse::error_response("curl failed while streaming openai-compatible provider");
         }
-        if (!accumulated.empty()) {
-            return ProviderResponse::text_response(accumulated);
-        }
-        if (saw_streamed_tool_call && !streamed_tool_call.name.empty()) {
-            const auto raw_arguments = streamed_tool_call.arguments["_raw"];
-            streamed_tool_call.arguments = openai_compatible_detail::parse_flat_json_string_object(raw_arguments);
-            if (streamed_tool_call.id.empty()) {
-                streamed_tool_call.id = "stream_tool_call";
-            }
-            return ProviderResponse::tool_calls_response({streamed_tool_call});
+        auto response = finalize_stream(stream);
+        if (response.type != ProviderResponseType::Error) {
+            return response;
         }
         return parse_response_body(raw);
     }
@@ -552,6 +508,10 @@ public:
         return ProviderResponse::error_response("failed to parse openai-compatible response");
     }
 
+    static ProviderResponse parse_stream_chunks_for_test(const std::vector<std::string>& chunks) {
+        return parse_stream_chunks(chunks, [](const std::string&) {});
+    }
+
     static std::string resolve_api_key(const Config& config) {
         if (!config.api_key.empty()) {
             return config.api_key;
@@ -567,6 +527,118 @@ public:
     }
 
 private:
+    struct StreamToolCallPart {
+        std::string id;
+        std::string name;
+        std::string arguments;
+    };
+
+    struct StreamAccumulator {
+        std::string text;
+        std::map<int, StreamToolCallPart> tool_calls;
+    };
+
+    static ProviderResponse parse_stream_chunks(const std::vector<std::string>& chunks,
+                                                const std::function<void(const std::string&)>& on_delta) {
+        StreamAccumulator accumulator;
+        for (const auto& chunk : chunks) {
+            const auto normalized = normalize_stream_chunk(chunk);
+            if (!normalized.empty()) {
+                consume_stream_chunk(normalized, accumulator, on_delta);
+            }
+        }
+        return finalize_stream(accumulator);
+    }
+
+    static std::string normalize_stream_chunk(std::string line) {
+        if (line.rfind("data:", 0) == 0) {
+            line = line.substr(5);
+        }
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
+            line.erase(line.begin());
+        }
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+            line.pop_back();
+        }
+        if (line.empty() || line == "[DONE]") {
+            return {};
+        }
+        return line;
+    }
+
+    static void consume_stream_chunk(const std::string& chunk,
+                                     StreamAccumulator& accumulator,
+                                     const std::function<void(const std::string&)>& on_delta) {
+        const auto delta = openai_compatible_detail::extract_json_string_field(chunk, "content");
+        if (!delta.empty()) {
+            accumulator.text += delta;
+            on_delta(delta);
+        }
+
+        std::size_t pos = 0;
+        while ((pos = chunk.find("\"index\"", pos)) != std::string::npos) {
+            auto colon = chunk.find(':', pos + 7);
+            if (colon == std::string::npos) {
+                break;
+            }
+            ++colon;
+            while (colon < chunk.size() && std::isspace(static_cast<unsigned char>(chunk[colon])) != 0) {
+                ++colon;
+            }
+            auto end = colon;
+            while (end < chunk.size() && std::isdigit(static_cast<unsigned char>(chunk[end])) != 0) {
+                ++end;
+            }
+            if (end == colon) {
+                pos = end;
+                continue;
+            }
+
+            const int index = std::stoi(chunk.substr(colon, end - colon));
+            const auto next = chunk.find("\"index\"", end);
+            const auto segment = chunk.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+
+            auto& part = accumulator.tool_calls[index];
+            const auto id = openai_compatible_detail::extract_json_string_field(segment, "id");
+            const auto name = openai_compatible_detail::extract_json_string_field(segment, "name");
+            const auto arguments = openai_compatible_detail::extract_json_string_field(segment, "arguments");
+            if (!id.empty()) {
+                part.id = id;
+            }
+            if (!name.empty()) {
+                part.name = name;
+            }
+            if (!arguments.empty()) {
+                part.arguments += arguments;
+            }
+
+            pos = next == std::string::npos ? chunk.size() : next;
+        }
+    }
+
+    static ProviderResponse finalize_stream(const StreamAccumulator& accumulator) {
+        if (!accumulator.tool_calls.empty()) {
+            std::vector<ToolCall> calls;
+            for (const auto& [index, part] : accumulator.tool_calls) {
+                if (part.name.empty()) {
+                    continue;
+                }
+                ToolCall call;
+                call.id = part.id.empty() ? "stream_tool_call_" + std::to_string(index) : part.id;
+                call.name = part.name;
+                call.arguments = openai_compatible_detail::parse_flat_json_string_object(part.arguments);
+                calls.push_back(std::move(call));
+            }
+            if (!calls.empty()) {
+                return ProviderResponse::tool_calls_response(std::move(calls));
+            }
+        }
+        if (!accumulator.text.empty()) {
+            return ProviderResponse::text_response(accumulator.text);
+        }
+        return ProviderResponse::error_response("failed to parse openai-compatible streaming response");
+    }
+
     Config config_;
 };
 

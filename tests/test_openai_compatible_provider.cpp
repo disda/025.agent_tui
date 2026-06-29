@@ -215,6 +215,40 @@ void test_streaming_request_body_can_omit_tools() {
     assert(body.find("\"tool_choice\"") == std::string::npos);
 }
 
+void test_parse_streaming_tool_call_chunks() {
+    const std::vector<std::string> chunks = {
+        R"JSON({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"pa"}}]}}]})JSON",
+        R"JSON({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"TO"}}]}}]})JSON",
+        R"JSON({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"DO.md\"}"}}]}}]})JSON",
+        R"JSON({"choices":[{"finish_reason":"tool_calls","delta":{}}]})JSON",
+    };
+
+    auto response = OpenAICompatibleProvider::parse_stream_chunks_for_test(chunks);
+
+    assert(response.type == ProviderResponseType::ToolCalls);
+    assert(response.tool_calls.size() == 1);
+    assert(response.tool_calls[0].id == "call_1");
+    assert(response.tool_calls[0].name == "read_file");
+    assert(response.tool_calls[0].arguments.at("path") == "TODO.md");
+}
+
+void test_parse_streaming_multiple_tool_calls_by_index() {
+    const std::vector<std::string> chunks = {
+        R"JSON({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"read_file","arguments":"{\"path\":\"README.md\"}"}},{"index":1,"id":"b","function":{"name":"list_dir","arguments":"{\"path\":\".\"}"}}]}}]})JSON",
+    };
+
+    auto response = OpenAICompatibleProvider::parse_stream_chunks_for_test(chunks);
+
+    assert(response.type == ProviderResponseType::ToolCalls);
+    assert(response.tool_calls.size() == 2);
+    assert(response.tool_calls[0].id == "a");
+    assert(response.tool_calls[0].name == "read_file");
+    assert(response.tool_calls[0].arguments.at("path") == "README.md");
+    assert(response.tool_calls[1].id == "b");
+    assert(response.tool_calls[1].name == "list_dir");
+    assert(response.tool_calls[1].arguments.at("path") == ".");
+}
+
 void test_curl_config_path_uses_forward_slashes() {
     const std::filesystem::path path{"C:\\Users\\Example\\Temp\\request.json"};
     const auto value = openai_compatible_detail::curl_config_path(path);
@@ -249,6 +283,8 @@ int main() {
     test_request_body_includes_tool_definitions_and_tool_results();
     test_request_body_uses_tool_registry_schema();
     test_streaming_request_body_can_omit_tools();
+    test_parse_streaming_tool_call_chunks();
+    test_parse_streaming_multiple_tool_calls_by_index();
     test_curl_config_path_uses_forward_slashes();
     test_inline_api_key_takes_precedence_over_env_key();
     test_provider_factory_creates_openai_compatible();

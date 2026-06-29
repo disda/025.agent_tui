@@ -428,7 +428,7 @@ git commit -m "Render transcript incrementally"
 - Modify: `include/agent_tui/llm/OpenAICompatibleProvider.hpp`
 - Modify: `tests/test_openai_compatible_provider.cpp`
 
-- [ ] **Step 1: Write failing parser tests for SSE tool call chunks**
+- [x] **Step 1: Write failing parser tests for SSE tool call chunks**
 
 Add to `tests/test_openai_compatible_provider.cpp`:
 
@@ -468,7 +468,7 @@ void test_parse_streaming_multiple_tool_calls_by_index() {
 }
 ```
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run:
 
@@ -479,7 +479,7 @@ cmake --build build --config Debug --target agent_tui_openai_compatible_provider
 
 Expected: compile failure because `parse_stream_chunks_for_test` does not exist.
 
-- [ ] **Step 3: Implement reusable stream aggregation**
+- [x] **Step 3: Implement reusable stream aggregation**
 
 In `OpenAICompatibleProvider`, add a small internal accumulator:
 
@@ -508,7 +508,7 @@ static ProviderResponse parse_stream_chunks_for_test(const std::vector<std::stri
 }
 ```
 
-- [ ] **Step 4: Wire `chat_stream` to use the same accumulator**
+- [x] **Step 4: Wire `chat_stream` to use the same accumulator**
 
 Inside `chat_stream`, replace ad hoc `saw_streamed_tool_call` parsing with:
 
@@ -525,7 +525,7 @@ return finalize_stream(accumulator);
 
 The exact function names may differ, but production and tests must share the same parsing code.
 
-- [ ] **Step 5: Run provider tests**
+- [x] **Step 5: Run provider tests**
 
 Run:
 
