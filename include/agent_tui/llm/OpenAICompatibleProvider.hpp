@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+#include <curl/curl.h>
+
 #include "agent_tui/config/Config.hpp"
 #include "agent_tui/llm/Provider.hpp"
 
@@ -35,6 +37,59 @@ inline std::string json_escape_string(const std::string& value) {
         }
     }
     return out.str();
+}
+
+inline int json_hex_value(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return 10 + (ch - 'a');
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return 10 + (ch - 'A');
+    }
+    return -1;
+}
+
+inline bool parse_json_hex4(const std::string& value, std::size_t offset, unsigned int& codepoint) {
+    if (offset + 4 > value.size()) {
+        return false;
+    }
+    unsigned int parsed = 0;
+    for (std::size_t i = 0; i < 4; ++i) {
+        const int hex = json_hex_value(value[offset + i]);
+        if (hex < 0) {
+            return false;
+        }
+        parsed = (parsed << 4) | static_cast<unsigned int>(hex);
+    }
+    codepoint = parsed;
+    return true;
+}
+
+inline void append_utf8(std::ostringstream& out, unsigned int codepoint) {
+    if (codepoint <= 0x7F) {
+        out << static_cast<char>(codepoint);
+        return;
+    }
+    if (codepoint <= 0x7FF) {
+        out << static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F));
+        out << static_cast<char>(0x80 | (codepoint & 0x3F));
+        return;
+    }
+    if (codepoint <= 0xFFFF) {
+        out << static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F));
+        out << static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+        out << static_cast<char>(0x80 | (codepoint & 0x3F));
+        return;
+    }
+    if (codepoint <= 0x10FFFF) {
+        out << static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07));
+        out << static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+        out << static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+        out << static_cast<char>(0x80 | (codepoint & 0x3F));
+    }
 }
 
 inline std::string role_to_string(Role role) {
@@ -61,6 +116,24 @@ inline std::string json_unescape_string(const std::string& value) {
             case 't': out << '\t'; break;
             case '"': out << '"'; break;
             case '\\': out << '\\'; break;
+            case 'u': {
+                unsigned int codepoint = 0;
+                if (!parse_json_hex4(value, i + 1, codepoint)) {
+                    out << 'u';
+                    break;
+                }
+                i += 4;
+                if (codepoint >= 0xD800 && codepoint <= 0xDBFF && i + 6 < value.size() &&
+                    value[i + 1] == '\\' && value[i + 2] == 'u') {
+                    unsigned int low = 0;
+                    if (parse_json_hex4(value, i + 3, low) && low >= 0xDC00 && low <= 0xDFFF) {
+                        codepoint = 0x10000 + (((codepoint - 0xD800) << 10) | (low - 0xDC00));
+                        i += 6;
+                    }
+                }
+                append_utf8(out, codepoint);
+                break;
+            }
             default: out << next; break;
         }
     }
@@ -287,12 +360,6 @@ inline std::string shell_quote(const std::filesystem::path& path) {
     return quoted;
 }
 
-inline std::string curl_config_path(const std::filesystem::path& path) {
-    auto value = path.generic_string();
-    std::replace(value.begin(), value.end(), '\\', '/');
-    return value;
-}
-
 inline std::string read_file(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
     std::ostringstream buffer;
@@ -328,45 +395,7 @@ public:
             openai_compatible_detail::write_file(std::filesystem::path{"output"} / "last-openai-request.json", request_body);
         }
 
-        const auto temp_dir = std::filesystem::temp_directory_path() / "agent_tui_openai_compatible";
-        std::filesystem::create_directories(temp_dir);
-        const auto stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-        const auto request_path = temp_dir / ("request_" + stamp + ".json");
-        const auto response_path = temp_dir / ("response_" + stamp + ".json");
-        const auto curl_config_path = temp_dir / ("curl_" + stamp + ".txt");
-
-        if (!openai_compatible_detail::write_file(request_path, request_body)) {
-            return ProviderResponse::error_response("failed to write request temp file");
-        }
-
-        std::ostringstream curl_config;
-        curl_config << "silent\n";
-        curl_config << "show-error\n";
-        curl_config << "request = \"POST\"\n";
-        curl_config << "url = \"" << api_base << "/chat/completions\"\n";
-        curl_config << "header = \"Content-Type: application/json\"\n";
-        curl_config << "header = \"Authorization: Bearer " << api_key << "\"\n";
-        curl_config << "data-binary = \"@" << openai_compatible_detail::curl_config_path(request_path) << "\"\n";
-        curl_config << "output = \"" << openai_compatible_detail::curl_config_path(response_path) << "\"\n";
-        curl_config << "max-time = " << config_.timeout_seconds << "\n";
-
-        if (!openai_compatible_detail::write_file(curl_config_path, curl_config.str())) {
-            return ProviderResponse::error_response("failed to write curl config temp file");
-        }
-
-        const auto command = "curl -K " + openai_compatible_detail::shell_quote(curl_config_path);
-        const int exit_code = std::system(command.c_str());
-        const auto response_body = openai_compatible_detail::read_file(response_path);
-
-        std::error_code ignored;
-        std::filesystem::remove(request_path, ignored);
-        std::filesystem::remove(response_path, ignored);
-        std::filesystem::remove(curl_config_path, ignored);
-
-        if (exit_code != 0) {
-            return ProviderResponse::error_response("curl failed while calling openai-compatible provider");
-        }
-        return parse_response_body(response_body);
+        return chat_with_libcurl(api_base, api_key, request_body);
     }
 
     ProviderResponse chat_stream(const std::vector<Message>& messages,
@@ -379,71 +408,7 @@ public:
 
         const auto api_base = config_.api_base.empty() ? std::string{"https://api.openai.com/v1"} : config_.api_base;
         const auto request_body = build_request_body(config_, messages, tools_schema_json, true, true);
-        const auto temp_dir = std::filesystem::temp_directory_path() / "agent_tui_openai_compatible";
-        std::filesystem::create_directories(temp_dir);
-        const auto stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-        const auto request_path = temp_dir / ("request_stream_" + stamp + ".json");
-        const auto curl_config_path = temp_dir / ("curl_stream_" + stamp + ".txt");
-
-        if (!openai_compatible_detail::write_file(request_path, request_body)) {
-            return ProviderResponse::error_response("failed to write request temp file");
-        }
-
-        std::ostringstream curl_config;
-        curl_config << "silent\n";
-        curl_config << "show-error\n";
-        curl_config << "no-buffer\n";
-        curl_config << "request = \"POST\"\n";
-        curl_config << "url = \"" << api_base << "/chat/completions\"\n";
-        curl_config << "header = \"Content-Type: application/json\"\n";
-        curl_config << "header = \"Authorization: Bearer " << api_key << "\"\n";
-        curl_config << "data-binary = \"@" << openai_compatible_detail::curl_config_path(request_path) << "\"\n";
-        curl_config << "max-time = " << config_.timeout_seconds << "\n";
-
-        if (!openai_compatible_detail::write_file(curl_config_path, curl_config.str())) {
-            return ProviderResponse::error_response("failed to write curl config temp file");
-        }
-
-        const auto command = "curl -N -K " + openai_compatible_detail::shell_quote(curl_config_path);
-#ifdef _WIN32
-        FILE* pipe = _popen(command.c_str(), "r");
-#else
-        FILE* pipe = popen(command.c_str(), "r");
-#endif
-        if (pipe == nullptr) {
-            return ProviderResponse::error_response("failed to start curl for streaming response");
-        }
-
-        std::string raw;
-        StreamAccumulator stream;
-        char buffer[4096];
-        while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-            std::string line(buffer);
-            raw += line;
-            auto chunk = normalize_stream_chunk(line);
-            if (chunk.empty()) {
-                continue;
-            }
-            consume_stream_chunk(chunk, stream, on_delta);
-        }
-
-#ifdef _WIN32
-        const int exit_code = _pclose(pipe);
-#else
-        const int exit_code = pclose(pipe);
-#endif
-        std::error_code ignored;
-        std::filesystem::remove(request_path, ignored);
-        std::filesystem::remove(curl_config_path, ignored);
-
-        if (exit_code != 0) {
-            return ProviderResponse::error_response("curl failed while streaming openai-compatible provider");
-        }
-        auto response = finalize_stream(stream);
-        if (response.type != ProviderResponseType::Error) {
-            return response;
-        }
-        return parse_response_body(raw);
+        return chat_stream_with_libcurl(api_base, api_key, request_body, on_delta);
     }
 
     static std::string build_request_body(const Config& config,
@@ -537,6 +502,146 @@ private:
         std::string text;
         std::map<int, StreamToolCallPart> tool_calls;
     };
+
+    struct CurlStreamContext {
+        StreamAccumulator accumulator;
+        std::string raw;
+        std::string pending_line;
+        const std::function<void(const std::string&)>* on_delta = nullptr;
+    };
+
+    static std::string curl_error_message(CURLcode code, long status_code, const std::string& response_body) {
+        std::ostringstream out;
+        if (code != CURLE_OK) {
+            out << "HTTP transport failed: " << curl_easy_strerror(code);
+            return out.str();
+        }
+        out << "HTTP " << status_code;
+        if (!response_body.empty()) {
+            out << ": " << response_body.substr(0, 800);
+        }
+        return out.str();
+    }
+
+    static size_t curl_write_to_string(char* ptr, size_t size, size_t nmemb, void* userdata) {
+        const auto bytes = size * nmemb;
+        auto* output = static_cast<std::string*>(userdata);
+        output->append(ptr, bytes);
+        return bytes;
+    }
+
+    static void consume_stream_line(CurlStreamContext& context, std::string line) {
+        context.raw += line;
+        const auto chunk = normalize_stream_chunk(std::move(line));
+        if (!chunk.empty()) {
+            consume_stream_chunk(chunk, context.accumulator, *context.on_delta);
+        }
+    }
+
+    static size_t curl_write_stream(char* ptr, size_t size, size_t nmemb, void* userdata) {
+        const auto bytes = size * nmemb;
+        auto* context = static_cast<CurlStreamContext*>(userdata);
+        context->pending_line.append(ptr, bytes);
+        std::size_t newline = 0;
+        while ((newline = context->pending_line.find('\n')) != std::string::npos) {
+            auto line = context->pending_line.substr(0, newline + 1);
+            context->pending_line.erase(0, newline + 1);
+            consume_stream_line(*context, std::move(line));
+        }
+        return bytes;
+    }
+
+    static curl_slist* append_header(curl_slist* headers, const std::string& header) {
+        return curl_slist_append(headers, header.c_str());
+    }
+
+    ProviderResponse chat_with_libcurl(const std::string& api_base,
+                                       const std::string& api_key,
+                                       const std::string& request_body) const {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+        if (!curl) {
+            return ProviderResponse::error_response("failed to initialize libcurl");
+        }
+
+        std::string response_body;
+        const auto url = api_base + "/chat/completions";
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, request_body.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(request_body.size()));
+        curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, static_cast<long>(config_.timeout_seconds));
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, curl_write_to_string);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response_body);
+
+        curl_slist* headers = nullptr;
+        headers = append_header(headers, "Content-Type: application/json");
+        headers = append_header(headers, "Accept: application/json");
+        headers = append_header(headers, "Authorization: Bearer " + api_key);
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
+
+        const CURLcode code = curl_easy_perform(curl.get());
+        long status_code = 0;
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status_code);
+        if (headers != nullptr) {
+            curl_slist_free_all(headers);
+        }
+        if (code != CURLE_OK || status_code < 200 || status_code >= 300) {
+            return ProviderResponse::error_response(curl_error_message(code, status_code, response_body));
+        }
+        return parse_response_body(response_body);
+    }
+
+    ProviderResponse chat_stream_with_libcurl(const std::string& api_base,
+                                              const std::string& api_key,
+                                              const std::string& request_body,
+                                              const std::function<void(const std::string&)>& on_delta) const {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+        std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
+        if (!curl) {
+            return ProviderResponse::error_response("failed to initialize libcurl");
+        }
+
+        CurlStreamContext context;
+        context.on_delta = &on_delta;
+        const auto url = api_base + "/chat/completions";
+        curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDS, request_body.c_str());
+        curl_easy_setopt(curl.get(), CURLOPT_POSTFIELDSIZE, static_cast<long>(request_body.size()));
+        curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT, static_cast<long>(config_.timeout_seconds));
+        curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_LIMIT, 1L);
+        curl_easy_setopt(curl.get(), CURLOPT_LOW_SPEED_TIME, static_cast<long>((std::max)(config_.timeout_seconds, 300)));
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, curl_write_stream);
+        curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &context);
+
+        curl_slist* headers = nullptr;
+        headers = append_header(headers, "Content-Type: application/json");
+        headers = append_header(headers, "Accept: text/event-stream");
+        headers = append_header(headers, "Authorization: Bearer " + api_key);
+        curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, headers);
+
+        const CURLcode code = curl_easy_perform(curl.get());
+        if (!context.pending_line.empty()) {
+            consume_stream_line(context, context.pending_line);
+            context.pending_line.clear();
+        }
+        long status_code = 0;
+        curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status_code);
+        if (headers != nullptr) {
+            curl_slist_free_all(headers);
+        }
+        if (code != CURLE_OK || status_code < 200 || status_code >= 300) {
+            return ProviderResponse::error_response(curl_error_message(code, status_code, context.raw));
+        }
+        auto response = finalize_stream(context.accumulator);
+        if (response.type != ProviderResponseType::Error) {
+            return response;
+        }
+        return parse_response_body(context.raw);
+    }
 
     static ProviderResponse parse_stream_chunks(const std::vector<std::string>& chunks,
                                                 const std::function<void(const std::string&)>& on_delta) {

@@ -149,6 +149,34 @@ void test_parse_tool_call_arguments_with_non_string_values() {
     assert(response.tool_calls[0].arguments.at("globs") == "[\"*.cpp\",\"*.hpp\"]");
 }
 
+void test_parse_tool_call_arguments_decodes_unicode_escapes() {
+    const std::string body = R"({
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "call_write_html",
+                            "type": "function",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": "{\"path\":\"snake_game.html\",\"content\":\"\u003c!DOCTYPE html\u003e\n\u003chtml\u003e\u003c/html\u003e\"}"
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    })";
+
+    const auto response = OpenAICompatibleProvider::parse_response_body(body);
+    assert(response.type == ProviderResponseType::ToolCalls);
+    assert(response.tool_calls.size() == 1);
+    assert(response.tool_calls[0].arguments.at("path") == "snake_game.html");
+    assert(response.tool_calls[0].arguments.at("content") == "<!DOCTYPE html>\n<html></html>");
+}
+
 void test_request_body_includes_tool_definitions_and_tool_results() {
     const auto root = make_test_root();
     Workspace workspace(root);
@@ -249,13 +277,6 @@ void test_parse_streaming_multiple_tool_calls_by_index() {
     assert(response.tool_calls[1].arguments.at("path") == ".");
 }
 
-void test_curl_config_path_uses_forward_slashes() {
-    const std::filesystem::path path{"C:\\Users\\Example\\Temp\\request.json"};
-    const auto value = openai_compatible_detail::curl_config_path(path);
-    assert(value.find('\\') == std::string::npos);
-    assert(value.find("request.json") != std::string::npos);
-}
-
 void test_inline_api_key_takes_precedence_over_env_key() {
     Config config;
     config.api_key = "sk-inline-key";
@@ -280,12 +301,12 @@ int main() {
     test_parse_error_response();
     test_parse_tool_call_response();
     test_parse_tool_call_arguments_with_non_string_values();
+    test_parse_tool_call_arguments_decodes_unicode_escapes();
     test_request_body_includes_tool_definitions_and_tool_results();
     test_request_body_uses_tool_registry_schema();
     test_streaming_request_body_can_omit_tools();
     test_parse_streaming_tool_call_chunks();
     test_parse_streaming_multiple_tool_calls_by_index();
-    test_curl_config_path_uses_forward_slashes();
     test_inline_api_key_takes_precedence_over_env_key();
     test_provider_factory_creates_openai_compatible();
     return 0;
